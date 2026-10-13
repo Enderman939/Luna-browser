@@ -1,0 +1,33 @@
+{
+  "ads": [
+    "doubleclick.net", "googlesyndication.com", "googleadservices.com", "googletagservices.com", "adservice.google.com",
+    "amazon-adsystem.com", "adnxs.com", "adsrvr.org", "advertising.com", "adtechus.com", "adform.net", "adform.com",
+    "rubiconproject.com", "pubmatic.com", "openx.net", "openx.com", "criteo.com", "criteo.net", "casalemedia.com",
+    "indexww.com", "smartadserver.com", "smartadserver.net", "bidswitch.net", "bidr.io", "taboola.com", "outbrain.com",
+    "revcontent.com", "mgid.com", "zergnet.com", "zedo.com", "yieldmo.com", "yieldlab.net", "yieldlove.com",
+    "sharethrough.com", "triplelift.com", "33across.com", "lijit.com", "sovrn.com", "gumgum.com", "contextweb.com",
+    "sonobi.com", "teads.tv", "teads.net", "tremorhub.com", "spotxchange.com", "spotx.tv", "improvedigital.com",
+    "adroll.com", "adroll.mgr.consensu.org", "flashtalking.com", "serving-sys.com", "media.net", "medianet.com",
+    "moatads.com", "adsafeprotected.com", "doubleverify.com", "ads-twitter.com", "ads.linkedin.com", "bat.bing.com",
+    "ads.yahoo.com", "adserver.yahoo.com", "ads.yandex.ru", "an.yandex.ru", "appier.net", "tappx.com",
+    "unityads.unity3d.com", "applovin.com", "applvn.com", "vungle.com", "inmobi.com", "chartboost.com",
+    "pangolin-sdk-toutiao.com", "pangle.io", "ads.tiktok.com", "adsbygoogle.com", "ad.gt", "adition.com",
+    "cpro.baidu.com", "pos.baidu.com", "union.baidu.com", "ubmcmm.baidustatic.com", "cpro.baidustatic.com",
+    "tanx.com", "mmstat.com", "alimama.com", "ad.qq.com", "e.qq.com", "gdt.qq.com", "adsmind.gdtimg.com",
+    "adm.baidu.com", "ad.sina.com.cn", "adbox.sina.com.cn", "ad.163.com", "ad.youku.com", "afp.qiyi.com"
+  ],
+  "trackers": [
+    "google-analytics.com", "analytics.google.com", "googletagmanager.com", "app-measurement.com", "analytics.tiktok.com",
+    "connect.facebook.net", "pixel.facebook.com", "analytics.twitter.com", "snap.licdn.com", "px.ads.linkedin.com",
+    "scorecardresearch.com", "quantserve.com", "quantcount.com", "hotjar.com", "hotjar.io", "fullstory.com",
+    "mouseflow.com", "mouseflow.io", "clarity.ms", "luckyorange.com", "luckyorange.net", "crazyegg.com",
+    "inspectlet.com", "sessioncam.com", "smartlook.com", "heap.io", "heapanalytics.com", "mixpanel.com",
+    "amplitude.com", "segment.io", "segment.com", "kissmetrics.io", "kissmetrics.com", "woopra.com",
+    "mathtag.com", "demdex.net", "omtrdc.net", "everesttech.net", "2o7.net", "bluekai.com", "rlcdn.com",
+    "krxd.net", "exelator.com", "tapad.com", "adsymptotic.com", "eyeota.net", "agkn.com", "addthis.com",
+    "addthisedge.com", "shareaholic.com", "statcounter.com", "histats.com",
+    "hm.baidu.com", "hmcdn.baidu.com", "tongji.baidu.com", "cnzz.com", "umeng.com", "umengcloud.com",
+    "growingio.com", "sensorsdata.cn", "fundin.cn", "beacon.qq.com", "pingjs.qq.com", "pingfore.qq.com",
+    "stat.yandex.ru", "mc.yandex.ru", "mc.yandex.com", "webtrends.com", "webtrekk.net", "etracker.com"
+  ]
+}

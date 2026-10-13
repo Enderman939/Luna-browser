@@ -1,0 +1,18 @@
+import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+if (process.platform !== 'win32') throw new Error('IE compatibility host requires Windows');
+const directory = path.resolve('src/native');
+if (!existsSync(directory)) throw new Error('Native source directory is missing');
+const compiler = path.join(process.env.WINDIR || 'C:/Windows', 'Microsoft.NET/Framework/v4.0.30319/csc.exe');
+if (!existsSync(compiler)) throw new Error('.NET Framework 4 compiler is unavailable');
+const result = spawnSync(compiler, ['/nologo','/target:winexe','/platform:x86','/optimize+','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.Web.Extensions.dll','/reference:Microsoft.CSharp.dll',`/win32manifest:${path.join(directory,'ie-host.manifest')}`,`/out:${path.join(directory,'luna-ie-host.exe')}`,path.join(directory,'IeHost.cs')], { encoding: 'utf8' });
+if (result.stdout) console.log(result.stdout.trim());
+if (result.stderr) console.error(result.stderr.trim());
+if (result.status !== 0) throw new Error('IE host compilation failed');
+console.log('Built native IE host (x86)');
+const cleanup = spawnSync(compiler, ['/nologo','/target:winexe','/platform:x86','/optimize+',`/out:${path.join(directory,'luna-private-cleanup.exe')}`,path.join(directory,'PrivateCleanup.cs')], { encoding: 'utf8' });
+if (cleanup.stdout) console.log(cleanup.stdout.trim());
+if (cleanup.stderr) console.error(cleanup.stderr.trim());
+if (cleanup.status !== 0) throw new Error('Private cleanup helper compilation failed');
+console.log('Built native private cleanup helper (x86)');

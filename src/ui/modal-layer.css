@@ -1,0 +1,1 @@
+html,body{background:transparent!important}body{display:block}dialog::backdrop{background:#00000060}dialog{position:fixed;user-select:none}input,textarea,[contenteditable="true"]{user-select:text}dialog summary{cursor:pointer}dialog[open]{animation:none!important}dialog::backdrop{animation:none!important}

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: luna-asset:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>luna</title>
+  <link rel="icon" href="assets/mark.svg">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="passwords.css">
+  <link rel="stylesheet" href="browser-menu.css">
+  <link rel="stylesheet" href="workspace.css">
+  <link rel="stylesheet" href="essentials.css">
+</head>
+<body>
+  <header class="chrome">
+    <div class="titlebar">
+      <div class="brand" title="luna"><img src="assets/mark.svg" alt=""><span>luna</span></div>
+      <span id="private-badge" class="private-badge" hidden><span data-icon="private"></span>无痕</span>
+      <div class="tabs" id="tabs" role="tablist" aria-label="标签页"></div>
+      <button class="icon-button add-tab" id="new-tab" data-icon="plus" title="新标签页 (Ctrl+T)" aria-label="新标签页"></button>
+      <div class="drag-space"></div>
+      <div class="window-controls">
+        <button id="minimize" data-icon="minus" aria-label="最小化" title="最小化"></button>
+        <button id="maximize" data-icon="square" aria-label="最大化" title="最大化"></button>
+        <button id="close-window" data-icon="close" aria-label="关闭窗口" title="关闭窗口"></button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="navigation-buttons">
+        <button class="icon-button" id="back" data-icon="left" title="后退 (Alt+←)" aria-label="后退" disabled></button>
+        <button class="icon-button" id="forward" data-icon="right" title="前进 (Alt+→)" aria-label="前进" disabled></button>
+        <button class="icon-button" id="reload" data-icon="reload" title="刷新 (Ctrl+R)" aria-label="刷新"></button>
+        <button class="icon-button" id="home" data-icon="home" title="主页" aria-label="主页"></button>
+      </div>
+      <form class="address-box" id="address-form">
+        <button type="button" class="address-symbol" id="address-symbol" data-icon="search" aria-label="网站信息" aria-haspopup="dialog"></button>
+        <button type="button" id="compatibility-button" class="compatibility-badge" hidden aria-label="退出 IE 兼容模式">IE</button>
+        <input id="address" aria-label="地址栏" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false">
+        <span class="address-hint" id="address-hint">Ctrl L</span>
+        <button type="button" class="icon-button bookmark-button" id="bookmark" data-icon="star" title="收藏此页面 (Ctrl+D)" aria-label="收藏此页面"></button>
+      </form>
+      <div class="toolbar-actions">
+        <button class="icon-button" id="passwords-button" data-icon="key" title="密码管理器" aria-label="密码管理器" aria-haspopup="dialog"></button>
+        <button id="private-protection-button" class="private-protection-button" hidden aria-label="无痕广告与追踪保护"><span data-icon="lock"></span><span id="private-protection-label">保护已开启</span></button>
+        <div id="extension-actions" class="extension-toolbar" aria-label="固定的扩展程序"></div>
+        <button class="icon-button" id="extensions-button" data-icon="puzzle" title="扩展程序" aria-label="扩展程序" aria-haspopup="dialog" aria-expanded="false"></button>
+        <button class="icon-button" id="downloads-button" data-icon="download" title="下载 (Ctrl+J)" aria-label="下载"></button>
+        <button class="icon-button" id="history-button" data-icon="history" title="历史 (Ctrl+H)" aria-label="浏览历史"></button>
+        <button class="icon-button" id="panel-button" data-icon="star" title="收藏夹" aria-label="收藏夹"></button>
+        <button class="icon-button menu-button" id="menu-button" data-icon="menu" title="浏览器菜单" aria-label="浏览器菜单" aria-haspopup="menu" aria-expanded="false"></button>
+      </div>
+    </div>
+    <div class="bookmarkbar" id="bookmarkbar"><button class="bookmark-label" id="bookmarks-button"><span data-icon="grid"></span>收藏夹</button><span class="bookmark-divider"></span><div id="bookmark-items" class="bookmark-items"></div></div>
+    <div class="findbar" id="findbar" hidden><span data-icon="search"></span><input id="find-input" placeholder="在网页中查找" aria-label="查找文字"><span id="find-count">0 / 0</span><button class="icon-button" id="find-prev" data-icon="up" aria-label="上一个结果"></button><button class="icon-button" id="find-next" data-icon="down" aria-label="下一个结果"></button><button class="icon-button" id="find-close" data-icon="close" aria-label="关闭查找"></button></div>
+  </header>
+  <div id="split-toolbar" class="split-toolbar" hidden><button id="split-left" class="split-pane-tab" title="操作左侧网页"></button><button id="split-right" class="split-pane-tab" title="操作右侧网页"></button><div class="split-controls"><button id="split-swap" class="icon-button" data-icon="split" title="交换左右网页" aria-label="交换左右网页"></button><button id="split-exit" class="text-button">退出分屏</button></div></div>
+  <main id="viewport" class="viewport">
+    <div id="split-divider" class="split-divider" hidden role="separator" aria-label="调整分屏比例" aria-orientation="vertical" tabindex="0" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50"></div>
+    <div id="split-left-error" class="split-error" hidden><p></p><button class="secondary-button">重新加载</button></div><div id="split-right-error" class="split-error" hidden><p></p><button class="secondary-button">重新加载</button></div>
+    <section id="newtab" class="newtab" aria-label="新标签页">
+      <div class="newtab-content">
+        <h1 class="wordmark">luna</h1>
+        <p id="private-note" class="private-note" hidden>无痕浏览：关闭全部无痕窗口后清除网站数据。下载的文件和主动添加的收藏会保留。</p>
+        <form id="search-form" class="home-search"><span data-icon="search"></span><input id="search" placeholder="搜索或输入网址" autocomplete="off" aria-label="搜索或输入网址"><button type="submit" aria-label="搜索" title="搜索" data-icon="right"></button></form>
+        <div class="shortcuts" id="shortcuts" aria-label="最近浏览的网站"></div>
+      </div>
+      <button class="customize-button" id="customize" title="打开外观设置"><span data-icon="pencil"></span>自定义 luna</button>
+    </section>
+
+    <section id="settings-page" class="settings-page" hidden aria-label="设置">
+      <aside class="settings-sidebar">
+        <h1>设置</h1>
+        <nav aria-label="设置分类">
+          <button data-settings-section="search"><span data-icon="search"></span>搜索引擎</button>
+          <button data-settings-section="appearance"><span data-icon="palette"></span>外观</button>
+          <button data-settings-section="startup"><span data-icon="power"></span>启动与主页</button>
+          <button data-settings-section="downloads"><span data-icon="download"></span>下载</button>
+          <button data-settings-section="privacy"><span data-icon="shield"></span>隐私与数据</button>
+          <button data-settings-section="passwords"><span data-icon="key"></span>密码管理器</button>
+          <button data-settings-section="about"><span data-icon="info"></span>关于 luna</button>
+        </nav>
+      </aside>
+      <div class="settings-main">
+        <div class="settings-top"><h2 id="settings-title">搜索引擎</h2><div class="settings-search"><span data-icon="search"></span><input id="settings-search" placeholder="搜索设置" aria-label="搜索设置"></div></div>
+        <div class="settings-groups">
+          <section class="settings-group" data-group="search" data-keywords="搜索引擎 百度 Google Bing DuckDuckGo">
+            <h3>搜索引擎</h3>
+            <div class="settings-card"><label class="setting-row"><span class="setting-label">地址栏与主页搜索</span><select id="setting-searchEngine" data-setting="searchEngine"><option value="baidu">百度</option><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select></label></div>
+          </section>
+          <section class="settings-group" data-group="appearance" data-keywords="外观 主题 深色 浅色 系统 收藏栏 主页 快捷方式 最近浏览">
+            <h3>主题与布局</h3>
+            <div class="settings-card">
+              <label class="setting-row"><span class="setting-label">主题</span><select id="setting-theme" data-setting="theme"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
+              <label class="setting-row"><span class="setting-label">显示收藏栏</span><input type="checkbox" class="switch" id="setting-showBookmarks" data-setting="showBookmarks"></label>
+              <label class="setting-row"><span class="setting-label">显示主页按钮</span><input type="checkbox" class="switch" id="setting-showHome" data-setting="showHome"></label>
+              <label class="setting-row"><span class="setting-label">显示最近浏览与快捷方式</span><input type="checkbox" class="switch" id="setting-showShortcuts" data-setting="showShortcuts"></label>
+            </div>
+          </section>
+          <section class="settings-group" data-group="appearance" data-keywords="外观 自定义 UI 背景 颜色 图片 标签栏 工具栏 设置 新标签页 侧栏 卡片 菜单 页面工具">
+            <div class="appearance-heading"><h3>分区域外观</h3><span>更改即时生效并自动保存</span></div>
+            <div class="appearance-preview" aria-label="外观实时预览">
+              <div class="preview-browser">
+                <div class="preview-title"><span class="preview-dot"></span><span>luna</span><span class="preview-tab">标签页</span><span class="preview-window">− □ ×</span></div>
+                <div class="preview-toolbar"><span data-icon="left"></span><span data-icon="reload"></span><div class="preview-address">搜索或输入网址</div><span data-icon="menu"></span></div>
+                <div class="preview-pages"><div class="preview-settings"><div class="preview-sidebar"><span>设置</span><b>外观</b><span>下载</span></div><div class="preview-setting-main"><span>设置背景</span><div class="preview-card">设置卡片</div></div></div><div class="preview-home"><strong>luna</strong><div class="preview-search">搜索</div><span>新标签页</span></div></div>
+              </div>
+              <p>分别调整区域背景，文字颜色会自动适配。</p>
+            </div>
+            <div class="settings-card appearance-editor">
+              <div id="appearance-regions" class="appearance-regions" role="tablist" aria-label="外观区域"></div>
+              <div class="appearance-region-title"><div><strong id="appearance-region-name"></strong><p id="appearance-region-detail"></p></div><button id="appearance-reset-region" class="text-button">恢复当前区域</button></div>
+              <div class="appearance-row"><span>背景颜色</span><div class="appearance-color"><input id="appearance-background-color" type="color" aria-label="区域背景颜色"><input id="appearance-background-hex" class="color-hex" placeholder="#FFFFFF" maxlength="7" aria-label="区域背景颜色值" spellcheck="false"><button id="appearance-background-auto" class="text-button">自动</button></div></div>
+              <div class="appearance-row" id="appearance-image-row"><div class="appearance-label"><span>背景图片</span><small id="appearance-image-name">使用纯色背景</small></div><div class="appearance-buttons"><button id="appearance-choose-background" class="secondary-button">选择图片…</button><button id="appearance-remove-background" class="text-button">移除</button></div></div>
+              <div class="appearance-row" id="appearance-opacity-row" hidden><label for="appearance-image-opacity">图片强度</label><div class="appearance-range"><input id="appearance-image-opacity" type="range" min="10" max="100" step="5"><output id="appearance-opacity-value">60%</output></div></div>
+            </div>
+          </section>
+          <section class="settings-group" data-group="appearance" data-keywords="外观 图标 颜色 大小 粗细 线条 圆角 自定义 标识 替换 图片">
+            <h3>图标</h3>
+            <div class="settings-card appearance-editor">
+              <div class="appearance-row"><span>图标颜色</span><div class="appearance-color"><input id="appearance-icon-color" type="color" aria-label="图标颜色"><input id="appearance-icon-hex" class="color-hex" maxlength="7" placeholder="自动" aria-label="图标颜色值" spellcheck="false"><button id="appearance-icon-auto" class="text-button">自动</button></div></div>
+              <label class="appearance-row"><span>工具栏图标大小</span><select id="appearance-icon-size" aria-label="图标大小"><option value="16">小 · 16 px</option><option value="18">默认 · 18 px</option><option value="20">中 · 20 px</option><option value="22">大 · 22 px</option><option value="24">更大 · 24 px</option></select></label>
+              <label class="appearance-row"><span>线条粗细</span><select id="appearance-icon-weight" aria-label="图标线条粗细"><option value="1.2">纤细</option><option value="1.6">默认</option><option value="2">加粗</option><option value="2.4">更粗</option></select></label>
+              <label class="appearance-row"><span>线条风格</span><select id="appearance-icon-shape" aria-label="图标线条风格"><option value="round">圆润</option><option value="square">方正</option></select></label>
+              <div class="appearance-row appearance-icon-replace"><div class="appearance-label"><span>替换单个图标</span><small>选择本地图片，或恢复该图标的默认样式</small></div><div class="appearance-icon-choice"><span id="appearance-icon-preview" class="appearance-icon-preview"></span><select id="appearance-icon-target" aria-label="要替换的图标"></select></div></div>
+              <div class="appearance-row appearance-icon-footer"><span id="appearance-custom-icons">使用默认图标</span><div class="appearance-buttons"><button id="appearance-choose-icon" class="secondary-button">选择图标…</button><button id="appearance-reset-icon" class="text-button">恢复此图标</button></div></div>
+              <p class="appearance-note" id="appearance-icon-note">图标颜色与线条设置应用于界面图标，本地图片保留自身颜色。</p>
+            </div>
+            <div class="appearance-reset"><span>恢复所有自定义背景、颜色和图标</span><button id="appearance-reset-all" class="secondary-button">恢复默认外观</button></div>
+          </section>
+          <section class="settings-group" data-group="startup" data-keywords="启动 主页 恢复 标签页 网址">
+            <h3>启动与主页</h3>
+            <div class="settings-card">
+              <label class="setting-row"><span class="setting-label">启动时</span><select id="setting-startup" data-setting="startup"><option value="restore">恢复上次打开的网页</option><option value="newtab">打开新标签页</option></select></label>
+              <form id="homepage-form" class="setting-row setting-row-stacked"><label for="setting-homePage">主页地址</label><div class="inline-field"><input id="setting-homePage" placeholder="留空使用新标签页" autocomplete="off"><button class="primary-button" type="submit">保存</button></div><span id="homepage-error" class="form-error" role="status"></span></form>
+              <div class="setting-row"><span class="setting-label">默认浏览器<span id="default-browser-status" class="setting-detail">点击按钮注册 luna，并在 Windows 设置中选择</span></span><button id="default-browser-register" class="secondary-button">设为默认浏览器</button></div>
+            </div>
+          </section>
+          <section class="settings-group" data-group="downloads" data-keywords="下载 文件 保存 位置 目录 询问">
+            <h3>下载</h3>
+            <div class="settings-card">
+              <div class="setting-row setting-row-stacked"><span>下载位置</span><div class="download-location"><span id="download-location"></span><button class="secondary-button" id="choose-download-path">更改</button></div><button class="text-button" id="reset-download-path">使用默认下载位置</button></div>
+              <label class="setting-row"><span class="setting-label">下载前询问保存位置</span><input type="checkbox" class="switch" id="setting-askDownload" data-setting="askDownload"></label>
+              <label class="setting-row"><span class="setting-label">使用多线程下载<span class="setting-detail">不支持分段的网站使用单连接</span></span><input type="checkbox" class="switch" id="setting-parallelDownloads" data-setting="parallelDownloads"></label>
+              <label class="setting-row"><span class="setting-label">每个下载的线程数</span><select id="setting-downloadThreads" data-setting="downloadThreads"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select></label>
+            </div>
+          </section>
+          <section class="settings-group" data-group="privacy" data-keywords="隐私 数据 历史 缓存 清除 重置">
+            <h3>隐私与数据</h3>
+            <div class="settings-card">
+              <div class="setting-row"><span>删除浏览数据<span class="setting-detail">按时间范围选择历史、网站数据、缓存和下载记录</span></span><button class="secondary-button" id="settings-clear-data">选择数据</button></div>
+              <div class="setting-row"><span>浏览历史<span class="setting-detail" id="history-size"></span></span><button class="secondary-button" id="settings-clear-history">清除历史</button></div>
+              <div class="setting-row"><span>网站缓存<span class="setting-detail">保留收藏和登录状态</span></span><button class="secondary-button" id="clear-cache">清除缓存</button></div>
+              <div class="setting-row"><span>恢复默认设置<span class="setting-detail">保留收藏、历史和快捷方式</span></span><button class="secondary-button" id="reset-settings">重置设置</button></div>
+            </div>
+          </section>
+          <section class="settings-group" data-group="passwords" data-keywords="密码 账号 保存 自动填充 登录 安全 管理">
+            <div class="settings-card">
+              <label class="setting-row"><span class="setting-label">询问是否保存密码<span class="setting-detail">提交登录或修改密码时显示保存提示</span></span><input type="checkbox" class="switch" data-setting="savePasswords" id="setting-savePasswords"></label>
+              <label class="setting-row"><span class="setting-label">自动填充账号与密码<span class="setting-detail">多个账号时，在登录框中选择要使用的账号</span></span><input type="checkbox" class="switch" data-setting="autofillPasswords" id="setting-autofillPasswords"></label>
+            </div>
+            <p id="password-vault-error" class="form-error" role="status"></p>
+            <div class="password-list-heading"><h3>已保存的密码 <span id="password-count">0</span></h3><div class="password-list-actions"><button id="password-import" class="secondary-button">从 Edge / Chrome 导入</button><button id="password-add" class="secondary-button"><span data-icon="plus"></span>添加密码</button></div></div>
+            <div class="password-search"><span data-icon="search"></span><input id="password-search" placeholder="搜索网站或账号" aria-label="搜索已保存的密码" autocomplete="off"></div>
+            <div id="password-list" class="settings-card password-list"></div>
+            <div class="password-list-heading"><h3>不再保存的网站</h3></div><div id="password-blocked" class="settings-card password-list"></div>
+            <p class="password-note">仅在匹配的网站填充，不会自动提交登录。密码由当前 Windows 账号加密保护。</p>
+          </section>
+          <section class="settings-group" data-group="about" data-keywords="关于 luna 版本 Chromium">
+            <h3>关于 luna</h3>
+            <div class="settings-card about-card"><img src="assets/mark.svg" alt=""><div><strong>luna</strong><span id="app-version"></span><span id="chromium-version"></span></div></div>
+          </section>
+          <div class="settings-empty" id="settings-empty" hidden>没有找到相关设置</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="extensions-page" class="extensions-page" hidden aria-label="扩展程序">
+      <div class="extensions-content">
+        <div class="extensions-heading"><h1>扩展程序</h1><div class="extension-market-buttons"><button class="secondary-button" id="extension-store"><span data-icon="globe"></span>Edge 扩展商店</button><button class="secondary-button" id="extension-chrome-store">Chrome 商店</button></div></div>
+        <div class="extension-controls"><button class="primary-button" id="extension-load-directory"><span data-icon="folder"></span>加载已解压的扩展</button><button class="secondary-button" id="extension-install-package">安装 CRX / ZIP</button><button class="secondary-button" id="extension-update">检查更新</button></div>
+        <form class="extension-install-form" id="extension-install-form"><select id="extension-market" aria-label="扩展商店"><option value="edge">Edge</option><option value="chrome">Chrome</option></select><input id="extension-store-url" placeholder="Edge / Chrome 商店链接或扩展 ID" aria-label="扩展链接或 ID" required><button class="primary-button" id="extension-store-install" type="submit">安装</button></form>
+        <div id="extension-install-status" class="extension-install-status" role="status" hidden><span id="extension-install-message"></span><button id="extension-install-retry" class="secondary-button" hidden>重试</button></div>
+        <p class="extension-compatibility">扩展兼容性取决于所使用的 Chrome API。无痕授权默认关闭，允许后在下一次无痕会话生效。撤销授权立即卸载，已运行的网页脚本需要刷新页面。</p>
+        <div class="extension-list" id="extension-list"></div>
+      </div>
+    </section>
+
+    <section class="error-page" id="error-page" hidden><span class="error-icon" data-icon="globe"></span><h1>无法打开此网页</h1><p id="error-message"></p><code id="error-detail"></code><div><button class="primary-button" id="retry">重新加载<span data-icon="reload"></span></button><button class="secondary-button" id="error-home">打开新标签页</button></div></section>
+    <div class="web-loading" id="web-loading" hidden></div>
+    <div class="shade" id="shade" hidden></div>
+    <aside class="panel" id="panel" hidden aria-label="浏览器资料">
+      <div class="panel-header"><h2 id="panel-title">收藏夹</h2><button class="icon-button" id="panel-close" data-icon="close" aria-label="关闭面板"></button></div>
+      <div class="download-tools" id="download-tools" hidden><button class="secondary-button" id="new-download"><span data-icon="plus"></span>新建下载</button></div>
+      <div class="bookmark-tools" id="bookmark-tools" hidden><button class="secondary-button" id="bookmark-manage">管理、导入与导出收藏</button></div>
+      <div class="panel-search" id="panel-search-wrap"><span data-icon="search"></span><input id="panel-search" placeholder="搜索收藏" aria-label="搜索收藏或历史"></div>
+      <div class="panel-summary"><span id="panel-summary"></span><button class="text-button" id="clear-history" hidden>清除历史</button></div>
+      <div class="panel-list" id="panel-list"></div>
+    </aside>
+    <div class="browser-menu" id="browser-menu" hidden aria-label="浏览器菜单">
+      <div class="browser-menu-root">
+        <div class="browser-menu-scroll" role="menu">
+          <button class="browser-menu-row" role="menuitem" data-browser-action="new-tab"><span data-icon="newtab"></span>新标签页<kbd>Ctrl+T</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="new-window"><span data-icon="square"></span>新窗口<kbd>Ctrl+N</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="private-window"><span data-icon="private"></span>新建无痕窗口<kbd>Ctrl+Shift+N</kbd></button>
+          <div class="menu-divider" role="separator"></div>
+          <div class="browser-menu-zoom" role="group" aria-label="网页缩放"><span class="zoom-label"><span data-icon="zoom"></span>缩放</span><button id="menu-zoom-out" data-icon="minus" aria-label="缩小网页" title="缩小网页"></button><button id="menu-zoom-reset" aria-label="恢复默认缩放" title="恢复默认缩放">100%</button><button id="menu-zoom-in" data-icon="plus" aria-label="放大网页" title="放大网页"></button><button id="menu-fullscreen" data-icon="fullscreen" aria-label="全屏" title="全屏 (F11)"></button></div>
+          <div class="menu-divider" role="separator"></div>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="bookmarks"><span data-icon="star"></span>收藏夹<kbd>Ctrl+Shift+O</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="history"><span data-icon="history"></span>历史记录<kbd>Ctrl+H</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="groups"><span data-icon="groups"></span>标签页组</button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="downloads"><span data-icon="download"></span>下载<kbd>Ctrl+J</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-menu-submenu="extensions" aria-haspopup="menu" aria-expanded="false"><span data-icon="puzzle"></span>扩展程序<span class="menu-arrow" data-icon="right"></span></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="passwords"><span data-icon="key"></span>密码</button>
+          <div class="menu-divider" role="separator"></div>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="clear-data"><span data-icon="trash"></span>删除浏览数据<kbd>Ctrl+Shift+Delete</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="print" data-needs-page><span data-icon="print"></span>打印<kbd>Ctrl+P</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="translate-page" data-needs-page><span data-icon="translate"></span>翻译</button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="ie-mode" id="menu-ie-mode"><span data-icon="globe"></span><span id="menu-ie-label">使用 IE 兼容模式重新加载</span></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="split"><span data-icon="split"></span><span id="menu-split-label">分屏</span></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="screenshot" data-needs-page><span data-icon="camera"></span>截图<kbd>Ctrl+Shift+S</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="find" data-needs-page><span data-icon="search"></span>在页面上查找<kbd>Ctrl+F</kbd></button>
+          <button class="browser-menu-row" role="menuitem" data-menu-submenu="tools" aria-haspopup="menu" aria-expanded="false"><span></span>更多工具<span class="menu-arrow" data-icon="right"></span></button>
+          <div class="menu-divider" role="separator"></div>
+          <button class="browser-menu-row" role="menuitem" data-browser-action="settings"><span data-icon="settings"></span>设置</button>
+          <button class="browser-menu-row" role="menuitem" data-menu-submenu="help" aria-haspopup="menu" aria-expanded="false"><span data-icon="info"></span>帮助与反馈<span class="menu-arrow" data-icon="right"></span></button>
+        </div>
+        <div class="browser-menu-footer"><button class="browser-menu-row" role="menuitem" data-browser-action="close">关闭 luna</button></div>
+      </div>
+      <div id="browser-menu-submenu" class="browser-menu-submenu" role="menu" aria-label="子菜单" hidden>
+        <button id="menu-submenu-back" class="browser-menu-row submenu-back" role="menuitem"><span data-icon="left"></span>返回</button>
+        <div data-submenu-page="extensions" hidden><div class="submenu-heading">扩展程序</div><button class="browser-menu-row" role="menuitem" data-browser-action="extensions"><span data-icon="puzzle"></span>管理扩展程序</button><button class="browser-menu-row" role="menuitem" data-browser-action="edge-store"><span data-icon="download"></span>Edge 扩展商店</button><button class="browser-menu-row" role="menuitem" data-browser-action="chrome-store"><span data-icon="globe"></span>Chrome 网上应用店</button></div>
+        <div data-submenu-page="tools" hidden><div class="submenu-heading">更多工具</div><button class="browser-menu-row" role="menuitem" data-browser-action="save-page" data-needs-page><span data-icon="file"></span>网页另存为<kbd>Ctrl+S</kbd></button><button class="browser-menu-row" role="menuitem" data-browser-action="reading-page" data-needs-page><span data-icon="reading"></span>阅读模式</button><button class="browser-menu-row" role="menuitem" data-browser-action="qr" data-needs-page><span data-icon="grid"></span>页面二维码</button><button class="browser-menu-row" role="menuitem" data-browser-action="screenshot-full" data-needs-page><span data-icon="camera"></span>整页截图</button><div class="menu-divider" role="separator"></div><button class="browser-menu-row" role="menuitem" data-browser-action="source" data-needs-page><span data-icon="code"></span>网页源代码<kbd>Ctrl+U</kbd></button><button class="browser-menu-row" role="menuitem" data-browser-action="devtools" data-needs-page><span data-icon="tools"></span>开发者工具<kbd>Ctrl+Shift+I</kbd></button></div>
+        <div data-submenu-page="help" hidden><div class="submenu-heading">帮助与反馈</div><button class="browser-menu-row" role="menuitem" data-browser-action="shortcuts"><span data-icon="keyboard"></span>键盘快捷键</button><button class="browser-menu-row" role="menuitem" data-browser-action="about"><span data-icon="info"></span>关于 luna</button></div>
+      </div>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <aside class="extensions-menu" id="extensions-menu" hidden role="dialog" aria-label="扩展程序菜单">
+    <div class="extensions-menu-heading">扩展程序</div>
+    <label class="extensions-global"><span>启用扩展程序<small id="extensions-current-site"></small></span><input id="extensions-global-enable" type="checkbox" class="switch" aria-label="启用所有扩展程序"></label>
+    <div class="extensions-menu-list" id="extensions-menu-list"></div>
+    <div class="extension-more-menu" id="extension-more-menu" hidden></div>
+    <div class="extensions-menu-footer"><button id="extensions-menu-manage"><span data-icon="puzzle"></span>管理扩展程序</button><button id="extensions-menu-store"><span data-icon="download"></span>获取 Edge 扩展程序</button></div>
+  </aside>
+  <aside id="password-popup" class="password-popup" hidden role="dialog" aria-label="密码管理器"><div class="password-popup-heading"><span data-icon="key"></span><h2 id="password-popup-title">密码管理器</h2><button id="password-popup-close" class="icon-button" data-icon="close" aria-label="关闭密码面板"></button></div><div id="password-popup-content"></div><button class="password-popup-footer" id="password-manage">管理密码<span data-icon="right"></span></button></aside>
+  <aside id="address-suggestions" class="address-suggestions" role="listbox" aria-label="地址栏候选" hidden></aside>
+  <dialog id="password-dialog" aria-labelledby="password-dialog-title"><form id="password-form" autocomplete="off"><div class="dialog-top"><h2 id="password-dialog-title">添加密码</h2><button type="button" id="password-dialog-close" class="icon-button" data-icon="close" aria-label="关闭密码编辑"></button></div><label>网站<input id="password-origin" type="url" placeholder="https://example.com" required maxlength="8192"></label><label>账号<input id="password-username" maxlength="512" placeholder="用户名或邮箱"></label><label>密码<div class="password-input-wrap"><input id="password-value" type="password" required maxlength="4096" autocomplete="off"><button type="button" id="password-show" class="text-button">显示</button></div></label><div class="password-editor-tools"><button type="button" id="password-generate" class="text-button">生成强密码</button><small>关闭后清除显示的密码</small></div><p id="password-form-error" class="form-error" role="status"></p><div class="dialog-actions"><button type="button" id="password-dialog-cancel" class="secondary-button">取消</button><button type="submit" class="primary-button">保存</button></div></form></dialog>
+  <dialog id="shortcut-dialog"><form id="shortcut-form"><div class="dialog-top"><h2>添加快捷方式</h2><button type="button" class="icon-button" id="dialog-close" data-icon="close" aria-label="关闭"></button></div><label>名称<input id="shortcut-name" maxlength="60" placeholder="网站名称" required></label><label>网址<input id="shortcut-url" maxlength="2000" placeholder="https://example.com" required></label><span class="form-error" id="shortcut-error" role="status"></span><div class="dialog-actions"><button type="button" class="secondary-button" id="dialog-cancel">取消</button><button type="submit" class="primary-button">完成</button></div></form></dialog>
+  <dialog id="download-dialog"><form id="download-form"><div class="dialog-top"><h2>新建下载</h2><button type="button" class="icon-button" id="download-dialog-close" data-icon="close" aria-label="关闭"></button></div><label>下载链接<input id="download-url" type="url" placeholder="https://example.com/file.zip" required></label><div class="dialog-actions"><button type="button" class="secondary-button" id="download-dialog-cancel">取消</button><button type="submit" class="primary-button">下载</button></div></form></dialog>
+  <dialog id="split-dialog" class="workspace-dialog" aria-labelledby="split-title"><form id="split-form"><div class="dialog-top"><h2 id="split-title">分屏浏览</h2><button type="button" id="split-dialog-close" class="icon-button" data-icon="close" aria-label="关闭"></button></div><div class="split-choices"><label>左侧网页<select id="split-left-choice" aria-label="左侧网页"></select><input id="split-left-url" placeholder="输入网址" aria-label="左侧网页地址" maxlength="8192"></label><label>右侧网页<select id="split-right-choice" aria-label="右侧网页"></select><input id="split-right-url" placeholder="输入网址" aria-label="右侧网页地址" maxlength="8192"></label></div><p class="workspace-note">选择已打开的标签页，或输入新地址。点击任一侧网页后，地址栏和工具栏操作该网页。</p><p id="split-form-error" class="form-error" role="status"></p><div class="dialog-actions"><button type="button" id="split-dialog-cancel" class="secondary-button">取消</button><button type="submit" class="primary-button">开始分屏</button></div></form></dialog>
+  <dialog id="groups-dialog" class="workspace-dialog" aria-labelledby="groups-title"><div class="dialog-top"><h2 id="groups-title">标签页组</h2><button id="groups-dialog-close" class="icon-button" data-icon="close" aria-label="关闭"></button></div><div id="group-list" class="group-list"></div><form id="group-form"><div class="group-fields"><label>名称<input id="group-name" placeholder="标签页组名称" maxlength="60" required></label><label>颜色<select id="group-color"><option value="gray">灰色</option><option value="blue">蓝色</option><option value="green">绿色</option><option value="amber">琥珀色</option><option value="red">红色</option><option value="purple">紫色</option></select></label></div><div class="group-tabs-label">选择标签页</div><div id="group-tabs" class="group-tabs"></div><p id="group-form-error" class="form-error" role="status"></p><div class="dialog-actions"><button type="button" id="group-new" class="secondary-button">新建组</button><button type="submit" id="group-save" class="primary-button">创建分组</button></div></form></dialog>
+  <dialog id="tab-group-dialog" class="workspace-dialog" aria-labelledby="tab-group-title"><div class="dialog-top"><h2 id="tab-group-title">标签页分组</h2><button id="tab-group-close" class="icon-button" data-icon="close" aria-label="关闭"></button></div><div id="tab-group-choices" class="tab-group-choices"></div></dialog>
+  <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-top"><h2 id="help-title">键盘快捷键</h2><button id="help-close" class="icon-button" data-icon="close" aria-label="关闭快捷键帮助"></button></div><div class="shortcut-help"><div><span>地址栏</span><kbd>Ctrl+L</kbd></div><div><span>新建／关闭标签页</span><kbd>Ctrl+T / Ctrl+W</kbd></div><div><span>恢复已关闭标签页</span><kbd>Ctrl+Shift+T</kbd></div><div><span>收藏夹／历史／下载</span><kbd>Ctrl+Shift+O / Ctrl+H / Ctrl+J</kbd></div><div><span>查找／打印／保存网页</span><kbd>Ctrl+F / Ctrl+P / Ctrl+S</kbd></div><div><span>网页截图</span><kbd>Ctrl+Shift+S</kbd></div><div><span>网页源码／开发者工具</span><kbd>Ctrl+U / Ctrl+Shift+I</kbd></div><div><span>缩放／恢复默认缩放</span><kbd>Ctrl+加号 / Ctrl+减号 / Ctrl+0</kbd></div><div><span>全屏</span><kbd>F11</kbd></div><div><span>删除浏览数据</span><kbd>Ctrl+Shift+Delete</kbd></div></div><div class="dialog-actions"><button id="help-done" class="primary-button">完成</button></div></dialog>
+  <dialog id="confirmation-dialog" class="browser-prompt" aria-labelledby="confirmation-title">
+    <div class="prompt-heading"><h2 id="confirmation-title"></h2><button class="icon-button" id="confirmation-close" data-icon="close" aria-label="取消"></button></div>
+    <div class="prompt-body"><p id="confirmation-message"></p><div id="confirmation-detail" class="confirmation-detail"></div><div id="confirmation-tabs" class="confirmation-tabs"></div><label id="confirmation-restore-wrap" class="restore-choice"><input id="confirmation-restore" type="checkbox"><span>下次打开时恢复本次全部标签页</span></label></div>
+    <div class="prompt-footer"><button class="secondary-button" id="confirmation-cancel">取消</button><button class="primary-button" id="confirmation-accept">确定</button></div>
+  </dialog>
+  <dialog id="site-info-dialog" class="essentials-dialog" aria-labelledby="site-info-title">
+    <div class="dialog-top"><h2 id="site-info-title">网站信息</h2><button id="site-info-close" class="icon-button" data-icon="close" aria-label="关闭网站信息"></button></div>
+    <p id="site-info-origin" class="site-origin"></p><p id="site-info-connection" class="essentials-note"></p>
+    <details id="site-certificate"><summary>连接与证书信息</summary><dl id="site-certificate-details"></dl></details>
+    <div class="section-label">网站权限 <small id="site-info-session"></small></div><div id="site-info-permissions"></div>
+    <p id="site-info-cookies" class="essentials-note"></p><p class="essentials-note">权限变更在重新加载后生效。跨来源嵌入页面不会继承此网站的授权。</p>
+    <div class="dialog-actions"><button id="site-info-reload" class="primary-button">重新加载</button></div>
+  </dialog>
+  <dialog id="bookmark-manager-dialog" class="essentials-dialog bookmark-manager-dialog" aria-labelledby="bookmark-manager-title">
+    <div class="dialog-top"><h2 id="bookmark-manager-title">管理收藏</h2><button id="bookmark-manager-close" class="icon-button" data-icon="close" aria-label="关闭收藏管理"></button></div>
+    <div class="bookmark-manager-tools"><button id="bookmark-folder-new" class="secondary-button">新建文件夹</button><button id="bookmark-entry-new" class="secondary-button">添加收藏</button><button id="bookmark-import" class="text-button">导入 HTML</button><button id="bookmark-export" class="text-button">导出 HTML</button></div>
+    <div class="bookmark-manager-location"><label>当前文件夹<select id="bookmark-location" aria-label="当前收藏文件夹"></select></label><input id="bookmark-manager-search" placeholder="搜索全部收藏" aria-label="搜索全部收藏"></div>
+    <div id="bookmark-manager-list" class="bookmark-manager-list"></div><p id="bookmark-manager-notice" class="essentials-note">拖动收藏调整顺序；编辑时可移动到其他文件夹。</p>
+  </dialog>
+  <dialog id="bookmark-editor-dialog" class="essentials-dialog" aria-labelledby="bookmark-editor-title"><form id="bookmark-editor-form">
+    <div class="dialog-top"><h2 id="bookmark-editor-title">编辑收藏</h2><button type="button" id="bookmark-editor-close" class="icon-button" data-icon="close" aria-label="关闭收藏编辑"></button></div>
+    <label>名称<input id="bookmark-edit-title" maxlength="300" required></label><label id="bookmark-edit-url-row">网址<input id="bookmark-edit-url" maxlength="8192" placeholder="https://example.com"></label><label>所在文件夹<select id="bookmark-edit-folder" aria-label="收藏所在文件夹"></select></label>
+    <p id="bookmark-editor-error" class="form-error" role="status"></p><div class="dialog-actions"><button type="button" id="bookmark-editor-cancel" class="secondary-button">取消</button><button type="submit" class="primary-button">保存</button></div>
+  </form></dialog>
+  <dialog id="clear-data-dialog" class="browser-prompt clear-data-dialog" aria-labelledby="clear-data-title">
+    <div class="prompt-heading"><h2 id="clear-data-title">删除浏览数据</h2><button class="icon-button" id="clear-data-close" data-icon="close" aria-label="取消"></button></div>
+    <div class="time-ranges" aria-label="时间范围"><button type="button" data-clear-range="quarter">最近 15 分钟</button><button type="button" data-clear-range="hour">最近 1 小时</button><button type="button" data-clear-range="day">最近 24 小时</button><button type="button" data-clear-range="week">最近 7 天</button><select id="clear-data-more" aria-label="更多时间范围"><option value="">更多</option><option value="month">最近 4 周</option><option value="all">全部时间</option></select></div>
+    <div class="clear-data-list">
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="history"><span><strong>浏览历史</strong><small id="clear-stat-history">正在计算…</small></span></label>
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="cookies"><span><strong>Cookie 和其他网站数据</strong><small id="clear-stat-cookies">正在计算…</small><small>可能退出网站登录。其他网站数据按所选时段访问的网站清理。</small></span></label>
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="cache"><span><strong>缓存的图片和文件</strong><small id="clear-stat-cache">正在计算…</small><small>缓存采用整体清理，不受时间范围限制。</small></span></label>
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="downloads"><span><strong>下载记录</strong><small id="clear-stat-downloads">正在计算…</small><small>保留下载文件和未完成的下载任务。</small></span></label>
+      <label class="clear-data-option unavailable"><input type="checkbox" disabled><span><strong>自动填充表单数据</strong><small>未保存自动填充数据</small></span></label>
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="passwords"><span><strong>已保存的密码</strong><small id="clear-stat-passwords">正在计算…</small><small>仅在勾选此项后删除，网站登录状态不受影响。</small></span></label>
+      <label class="clear-data-option"><input type="checkbox" data-clear-type="siteSettings"><span><strong>网站设置</strong><small id="clear-stat-siteSettings">正在计算…</small><small>页面缩放和网站权限记录</small></span></label>
+      <label class="clear-data-option unavailable"><input type="checkbox" disabled><span><strong>托管应用数据</strong><small>未安装托管应用</small></span></label>
+    </div>
+    <div id="clear-data-error" class="clear-data-error" role="status"></div>
+    <div class="prompt-footer"><button class="secondary-button" id="clear-data-cancel">取消</button><button class="primary-button" id="clear-data-submit">删除数据</button></div>
+  </dialog>
+  <script src="appearance-model.js"></script>
+  <script src="appearance-theme.js"></script>
+  <script src="appearance-ui.js"></script>
+  <script src="popover-host.js"></script>
+  <script src="dialogs-ui.js"></script>
+  <script src="downloads-ui.js"></script>
+  <script src="extensions-menu.js"></script>
+  <script src="passwords-ui.js"></script>
+  <script src="browser-menu-ui.js"></script>
+  <script src="workspace-ui.js"></script>
+  <script src="essentials-ui.js"></script>
+  <script src="modal-source.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

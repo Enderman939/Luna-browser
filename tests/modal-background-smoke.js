@@ -1,0 +1,78 @@
+const { _electron: electron } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), http = require('node:http');
+const { closeApp } = require('./app-helpers');
+const { dialogPage, dialogClosed } = require('./dialog-helpers');
+const root = path.resolve(__dirname, '..'), profile = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-modal-')), artifacts = path.join(root, 'artifacts');
+let application, page, base, nativeTab;
+const errors = [], checks = [];
+const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<!doctype html><meta http-equiv="X-UA-Compatible" content="IE=edge"><title>Live modal background</title><style>html,body{margin:0;min-height:100%;background:#20b080}body{height:100vh;font:24px Segoe UI;color:white}h1{margin:0;padding:35px}button{margin:20px;padding:20px}</style><h1>Live webpage behind browser dialogs</h1><div id="tick">0</div><button id="test" onclick="window.clicks=(window.clicks||0)+1">Underlying action</button><script>window.clicks=0;window.ticks=0;setInterval(function(){document.getElementById("tick").innerText=String(++window.ticks)},100)</script>'); });
+const command = (action, payload) => page.evaluate(({ action, payload }) => window.browser.command(action, payload), { action, payload });
+const state = () => command('state');
+const active = async () => { const s = await state(); return s.tabs.find(tab => tab.id === s.activeId); };
+async function wait(fn, label, timeout = 15000) { const start = Date.now(); while (Date.now() - start < timeout) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error('Timed out: ' + label); }
+const remote = (id, code) => application.evaluate(({ webContents }, { id, code }) => webContents.fromId(id).executeJavaScript(code, true), { id, code });
+const native = (op, payload = {}) => application.evaluate(({ app }, { id, op, payload }) => process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json')('./src/compatibility.js').hosts.get(id).request(op, payload), { id: nativeTab, op, payload });
+async function modal(selector, parent = page) { return dialogPage(parent, selector); }
+async function pixel(image, x, y) { return application.evaluate(({ nativeImage }, { image, x, y }) => { const bitmap = nativeImage.createFromDataURL(image), size = bitmap.getSize(), bytes = bitmap.toBitmap(), offset = (y * size.width + x) * 4; return { r: bytes[offset + 2], g: bytes[offset + 1], b: bytes[offset] }; }, { image, x, y }); }
+async function visibleViews() { return application.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).contentView.children.filter(view => view.getVisible()).map(view => ({ url: view.webContents?.getURL(), bounds: view.getBounds() })), (await state()).windowId); }
+async function run() {
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); base = 'http://127.0.0.1:' + server.address().port;
+  const env = { ...process.env, LUNA_USER_DATA: profile, LUNA_NATIVE_TESTING: '1' }; delete env.ELECTRON_RUN_AS_NODE;
+  application = await electron.launch({ executablePath: process.env.LUNA_EXECUTABLE || require('electron'), args: process.env.LUNA_EXECUTABLE ? ['--no-proxy-server'] : [root, '--no-proxy-server'], env, timeout: 30000 });
+  application.on('window', win => win.on('pageerror', error => errors.push(error.message))); page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message)); await page.waitForSelector('.tab.selected');
+  await command('navigate', base + '/ie'); await wait(async () => !(await active()).loading, 'fixture'); nativeTab = (await active()).id;
+  await command('ie-mode'); await wait(async () => (await active()).compatibility.documentMode === 11 && !(await active()).loading, 'IE ready');
+  await application.evaluate(({ BrowserWindow }, id) => { const win = BrowserWindow.fromId(id); win.setPosition(30, 30); win.setContentSize(1100, 800); win.show(); win.focus(); }, (await state()).windowId);
+  await native('activate-parent', { minimizeConsole: true });
+  await command('new-tab', base + '/normal'); await wait(async () => !(await active()).loading, 'Chromium ready'); const normal = await active();
+  await command('update-settings', { theme: 'dark' }); await page.locator('#address-symbol').click(); let layer = await modal('#site-info-dialog[open]');
+  assert.equal(await layer.evaluate(() => typeof window.browser), 'undefined', 'dialog mirror has no browser command API');
+  assert.equal((await visibleViews()).filter(view => view.url === base + '/normal').length, 1);
+  const before = await remote(normal.webContentsId, 'window.ticks'); await wait(async () => await remote(normal.webContentsId, 'window.ticks') > before + 3, 'background timer');
+  const image = await native('screen-capture'), green = await pixel(image, 45, 650); assert.ok(green.g > green.r * 3 && green.g > green.b, 'real desktop shows the green webpage below modal backdrop');
+  fs.writeFileSync(path.join(artifacts, 'modal-live-background.png'), Buffer.from(image.split(',')[1], 'base64'));
+  await remote(normal.webContentsId, 'document.body.style.background="#d04030"'); await wait(async () => { const color = await pixel(await native('screen-capture'), 45, 650); return color.r > color.g * 2 && color.r > color.b * 2; }, 'real background repaint');
+  await layer.mouse.click(30, 320); assert.equal(await remote(normal.webContentsId, 'window.clicks'), 0, 'backdrop intercepts website clicks');
+  await remote(normal.webContentsId, 'window.receivedKeys=0;document.addEventListener("keydown",function(){window.receivedKeys++});');
+  await application.evaluate(({ webContents }, id) => { const web = webContents.fromId(id); web.sendInputEvent({ type: 'keyDown', keyCode: 'A' }); web.sendInputEvent({ type: 'keyUp', keyCode: 'A' }); }, normal.webContentsId);
+  assert.equal(await remote(normal.webContentsId, 'window.receivedKeys'), 0, 'browser input gate prevents typing into covered webpage');
+  await layer.locator('[data-permission="camera"]').selectOption('block'); await wait(async () => (await state()).siteInfo.permissions.find(permission => permission.key === 'camera').value === 'block', 'real permission selector');
+  await layer.locator('#site-info-close').click(); await wait(() => dialogClosed(layer), 'site dialog closed'); checks.push('real desktop webpage visible and repaints under dark modal; timer runs; backdrop blocks clicks; actual selector and close work'); console.log('PASS live background');
+  await page.evaluate(() => window.essentialsUI.openBookmarks()); layer = await modal('#bookmark-manager-dialog[open]'); await layer.locator('#bookmark-entry-new').click(); await layer.waitForSelector('#bookmark-editor-dialog[open]');
+  await layer.locator('#bookmark-edit-title').fill('Live overlay bookmark'); await layer.locator('#bookmark-edit-url').fill(base + '/saved'); await layer.locator('#bookmark-editor-form button[type="submit"]').click();
+  await wait(async () => (await state()).bookmarks.some(entry => entry.title === 'Live overlay bookmark'), 'nested form submitted'); await layer.waitForSelector('#bookmark-editor-dialog', { state: 'hidden' });
+  await layer.locator('#bookmark-manager-close').click(); await wait(() => dialogClosed(layer), 'nested dialogs closed');
+  await command('close-window'); layer = await modal('#confirmation-dialog[open]'); await layer.locator('#confirmation-cancel').click(); await wait(() => dialogClosed(layer), 'confirmation cancellation'); assert.equal(page.isClosed(), false);
+  checks.push('nested bookmark editor retains input and submits; native confirmation cancel returns to live page'); console.log('PASS real dialog interaction');
+  await command('password-settings'); await page.waitForSelector('#settings-page:not([hidden])'); await page.locator('#password-add').click(); layer = await modal('#password-dialog[open]');
+  await layer.locator('#password-origin').fill(base); await layer.locator('#password-username').fill('弹窗测试账号'); await layer.locator('#password-generate').click();
+  await wait(async () => (await layer.locator('#password-value').inputValue()).length === 20, 'generated secret reaches real dialog');
+  await layer.locator('#password-form button[type="submit"]').click(); await wait(() => dialogClosed(layer), 'password editor saved');
+  assert.ok((await command('password-list')).entries.some(entry => entry.username === '弹窗测试账号'));
+  checks.push('actual password editor accepts Chinese text, generates a password and saves through original encrypted-vault flow');
+  await command('activate', normal.id);
+  await command('new-tab', base + '/right'); await wait(async () => !(await active()).loading, 'right pane'); const right = await active(); await command('split-start', { leftId: normal.id, rightId: right.id });
+  await page.waitForSelector('#split-toolbar:not([hidden])'); await page.waitForSelector('.tab.selected[data-id="' + normal.id + '"]');
+  await page.locator('#address-symbol').click(); layer = await modal('#site-info-dialog[open]'); assert.equal((await visibleViews()).filter(view => view.url?.startsWith(base) && view.url !== base + '/ie').length, 2);
+  await layer.locator('#site-info-close').click(); await wait(() => dialogClosed(layer), 'split modal closed'); assert.ok((await state()).split); checks.push('both live split panes remain visible and layout survives dialog');
+  await command('private-window'); let privatePage;
+  await wait(() => { privatePage = application.windows().find(win => !win.isClosed() && win !== page && win.url().endsWith('/index.html')); return !!privatePage; }, 'private window');
+  await privatePage.waitForSelector('.tab.selected'); await privatePage.evaluate(url => window.browser.command('navigate', url), base + '/private');
+  await wait(async () => { const s = await privatePage.evaluate(() => window.browser.command('state')); return !s.tabs.find(tab => tab.id === s.activeId).loading; }, 'private page ready');
+  await privatePage.locator('#address-symbol').click(); layer = await modal('#site-info-dialog[open]', privatePage); await layer.locator('[data-permission="camera"]').selectOption('allow');
+  await wait(async () => { const s = await privatePage.evaluate(() => window.browser.command('state')); return s.siteInfo.permissions.find(permission => permission.key === 'camera').value === 'allow'; }, 'private selector isolated');
+  assert.equal((await state()).siteInfo.permissions.find(permission => permission.key === 'camera').value, 'block');
+  await layer.locator('#site-info-close').click(); await wait(() => dialogClosed(layer), 'private dialog closed'); await privatePage.evaluate(() => window.browser.command('close-window')); await wait(() => privatePage.isClosed(), 'private window closed');
+  checks.push('private dialog routes to its own window and grants remain separate; mirror has no browser command bridge');
+  await command('activate', nativeTab); await native('activate-parent'); await wait(async () => (await native('inspect')).visible, 'IE visible');
+  await command('browser-menu-action', 'clear-data'); layer = await modal('#clear-data-dialog[open]'); await wait(async () => { const info = await native('inspect'); return info.visible && !info.embedding.hitIsNative; }, 'IE below dialog').catch(async error => { console.error('IE modal inspection', await native('inspect')); console.error('Dialog windows', await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(win => ({ id: win.id, url: win.webContents.getURL(), visible: win.isVisible(), focused: win.isFocused(), bounds: win.getBounds() })))); throw error; });
+  await wait(async () => { const color = await pixel(await native('screen-capture'), 550, 55); return Math.abs(color.r - 51) < 5 && Math.abs(color.g - 51) < 5 && Math.abs(color.b - 51) < 5; }, 'IE dialog paints opaque foreground');
+  const ieImage = await native('screen-capture'), iePixel = await pixel(ieImage, 45, 650); assert.ok(iePixel.g > iePixel.r * 3 && iePixel.g > iePixel.b, 'real IE remains visible below backdrop');
+  fs.writeFileSync(path.join(artifacts, 'modal-ie-background.png'), Buffer.from(ieImage.split(',')[1], 'base64')); await layer.locator('#clear-data-cancel').click(); await wait(() => dialogClosed(layer), 'IE modal closed');
+  checks.push('actual IE desktop pixels retained during data dialog; modal owns mouse input'); console.log('PASS split and IE');
+  assert.deepEqual(errors, []);
+  fs.writeFileSync(path.join(artifacts, 'modal-background-result.json'), JSON.stringify({ passed: true, version: (await state()).version, defaultGPU: await application.evaluate(({ app }) => app.getGPUFeatureStatus()), checks, testedAt: new Date().toISOString() }, null, 2));
+  await closeApp(application, page, false); application = null; console.log('PASS: ' + checks.join('; '));
+}
+run().catch(async error => { console.error(error); if (application) { const layer = application.windows().find(win => !win.isClosed() && win.url().endsWith('/modal-layer.html')); if (layer) await layer.screenshot({ path: path.join(artifacts, 'modal-background-failure.png') }).catch(() => {}); } process.exitCode = 1; }).finally(async () => { if (application) { await application.evaluate(({ app }) => app.exit(0)).catch(() => {}); await application.close().catch(() => {}); } await new Promise(resolve => server.close(resolve)); fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });

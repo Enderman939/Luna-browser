@@ -1,0 +1,22 @@
+node_modules/
+dist/
+artifacts/
+*.log
+
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Generated native helpers and preload bundle (rebuilt by npm scripts)
+src/native/*.exe
+src/preload.bundle.js
+
+# Local installer projects, generated installers and caches
+src/ui/assets/*.aip
+src/ui/assets/Luna-SetupFiles/
+src/ui/assets/Luna-cache/

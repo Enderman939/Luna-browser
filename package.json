@@ -1,0 +1,79 @@
+{
+  "name": "luna-browser",
+  "version": "1.0.0",
+  "description": "luna 桌面浏览器",
+  "main": "src/main.js",
+  "author": "Enderman939",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Enderman939/Luna-browser.git"
+  },
+  "homepage": "https://github.com/Enderman939/Luna-browser",
+  "bugs": {
+    "url": "https://github.com/Enderman939/Luna-browser/issues"
+  },
+  "license": "GPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js",
+    "pretest:essentials": "npm run prepare:ui",
+    "test:essentials": "node tests/essentials-smoke.js",
+    "pretest:modal-background": "npm run prepare:ui && npm run build:ie",
+    "test:modal-background": "node tests/modal-background-smoke.js",
+    "pretest:store": "npm run prepare:ui",
+    "test:store": "node tests/store-smoke.js",
+    "pretest:menu": "npm run prepare:ui",
+    "test:menu": "node tests/extensions-menu-smoke.js",
+    "pretest:privacy": "npm run prepare:ui",
+    "test:privacy": "node tests/privacy-smoke.js",
+    "prepare:ui": "node scripts/bundle-preload.mjs",
+    "prestart": "npm run prepare:ui",
+    "pretest:smoke": "npm run prepare:ui",
+    "pretest:features": "npm run prepare:ui",
+    "test:features": "node tests/features-smoke.js",
+    "test:smoke": "node tests/smoke.js",
+    "pretest:context": "npm run prepare:ui",
+    "test:context": "node tests/context-menu-smoke.js",
+    "pretest:security": "npm run prepare:ui",
+    "test:security": "node tests/security-smoke.js",
+    "pretest:appearance": "npm run prepare:ui",
+    "test:appearance": "node tests/appearance-smoke.js",
+    "pretest:passwords": "npm run prepare:ui",
+    "test:passwords": "node tests/passwords-smoke.js",
+    "pretest:password-dropdown": "npm run prepare:ui",
+    "test:password-dropdown": "node tests/password-dropdown-smoke.js",
+    "pretest:browser-menu": "npm run prepare:ui",
+    "test:browser-menu": "node tests/browser-menu-smoke.js",
+    "pretest:workspace": "npm run prepare:ui",
+    "test:workspace": "node tests/workspace-smoke.js",
+    "build:ie": "node scripts/build-ie-host.mjs",
+    "pretest:compatibility": "npm run prepare:ui && npm run build:ie",
+    "test:compatibility": "node tests/compatibility-smoke.js",
+    "pretest:ie-visibility": "npm run prepare:ui && npm run build:ie",
+    "test:ie-visibility": "node tests/ie-visibility-smoke.js",
+    "pretest:private-security": "npm run prepare:ui && npm run build:ie",
+    "test:private-security": "node tests/private-security-smoke.js",
+    "prebuild": "npm run prepare:ui && npm run build:ie && electron scripts/create-icon.js",
+    "build": "node scripts/package.mjs",
+    "build:compact": "npm run build -- --out=dist/compact --compact --zip",
+    "package:size": "node scripts/package-size.mjs",
+    "package:compact": "node scripts/compact-package.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.7.0",
+    "esbuild": "^0.28.2",
+    "playwright": "1.64.0"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "adm-zip": "0.6.1",
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0",
+    "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "adm-zip": "0.6.1"
+  }
+}

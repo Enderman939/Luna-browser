@@ -1,0 +1,11 @@
+:root{color-scheme:light;--surface:#fff;--ink:#191919;--muted:#777;--line:#e6e6e6;--hover:#eeeeee;--font:"Segoe UI Variable","Segoe UI","Microsoft YaHei UI",sans-serif}
+:root[data-theme="dark"]{color-scheme:dark;--surface:#242424;--ink:#f1f1f1;--muted:#aaa;--line:#393939;--hover:#3c3c3c}
+*{box-sizing:border-box}body{margin:0;background:transparent;color:var(--ink);font:12px var(--font);user-select:none;overflow:hidden;padding:8px}
+#stage{display:flex;align-items:flex-start;gap:16px}.menu{flex:1;min-width:0;padding:8px 6px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 3px 8px #00000024;overflow:auto;scrollbar-width:thin;animation:arrive 120ms ease-out;transform-origin:top left}
+.menu button{font:inherit;color:inherit;width:100%;border:0;background:transparent;display:flex;align-items:center;gap:12px;text-align:left;padding:8px 10px;border-radius:7px;min-height:33px;cursor:pointer}
+.menu button:hover:not(:disabled),.menu button:focus-visible,.menu button[aria-expanded="true"]{background:var(--hover);outline:none}.menu button:disabled{color:var(--muted);opacity:.5;cursor:default}
+.label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.shortcut{color:var(--muted);white-space:nowrap;font-size:11px}.symbol{display:flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0}.symbol img,.symbol svg{width:16px;height:16px;object-fit:contain}.arrow{font-size:17px;line-height:1;color:var(--muted)}
+.separator{height:1px;background:var(--line);margin:7px -6px}.back{border-bottom:1px solid var(--line)!important;border-radius:0!important;margin-bottom:5px!important}.back span{font-weight:600}[hidden]{display:none!important}
+body[data-side="left"] #stage{flex-direction:row-reverse}.closing #stage{opacity:0;transform:scale(.985);transition:opacity 100ms ease,transform 100ms ease}
+@keyframes arrive{from{opacity:0;transform:translateY(-3px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.symbol svg{color:var(--icon-color,currentColor);stroke-width:var(--icon-weight,1.7);stroke-linecap:var(--icon-cap,round);stroke-linejoin:var(--icon-join,round)}
