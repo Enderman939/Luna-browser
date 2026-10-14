@@ -71,9 +71,21 @@ class Store {
   importBookmarks(parsed) {
     const urls = new Set(this.data.bookmarks.map(entry => bookmarkURL(entry.url)));
     const incoming = parsed.bookmarks.filter(entry => !urls.has(bookmarkURL(entry.url)));
-    if (this.data.bookmarks.length + incoming.length > MAX_BOOKMARKS || this.data.bookmarkFolders.length + parsed.bookmarkFolders.length > MAX_FOLDERS) throw new Error('导入后收藏或文件夹数量超过上限');
-    this.data.bookmarks.push(...incoming); this.data.bookmarkFolders.push(...parsed.bookmarkFolders); this.save();
-    return { added: incoming.length, folders: parsed.bookmarkFolders.length, skipped: parsed.skipped + parsed.bookmarks.length - incoming.length };
+    const ids = new Set(this.data.bookmarkFolders.map(folder => folder.id));
+    const folders = parsed.bookmarkFolders.filter(folder => { if (ids.has(folder.id)) return false; ids.add(folder.id); return true; });
+    if (this.data.bookmarks.length + incoming.length > MAX_BOOKMARKS || this.data.bookmarkFolders.length + folders.length > MAX_FOLDERS) throw new Error('导入后收藏或文件夹数量超过上限');
+    this.data.bookmarks.push(...incoming); this.data.bookmarkFolders.push(...folders); this.save();
+    return { added: incoming.length, folders: folders.length, skipped: (parsed.skipped || 0) + parsed.bookmarks.length - incoming.length };
+  }
+  importHistory(entries) {
+    const urls = new Map(this.data.history.map(entry => [entry.url, entry])); let added = 0, skipped = 0;
+    for (const entry of entries) {
+      const url = bookmarkURL(entry.url); if (!url || !Number.isFinite(entry.time) || entry.time <= 0) { skipped++; continue; }
+      const previous = urls.get(url);
+      if (!previous) { urls.set(url, { url, title: String(entry.title || url).slice(0, 300), time: entry.time }); added++; }
+      else { skipped++; if (entry.time > previous.time) urls.set(url, { ...previous, time: entry.time }); }
+    }
+    this.data.history = [...urls.values()].sort((a, b) => b.time - a.time).slice(0, 10000); this.save(); return { added, skipped };
   }
 }
 

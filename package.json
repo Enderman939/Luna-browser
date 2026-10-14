@@ -1,6 +1,6 @@
 {
   "name": "luna-browser",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "luna 桌面浏览器",
   "main": "src/main.js",
   "author": "Enderman939",
@@ -16,11 +16,13 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js",
+    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js tests/import-search.test.js",
     "pretest:essentials": "npm run prepare:ui",
     "test:essentials": "node tests/essentials-smoke.js",
     "pretest:modal-background": "npm run prepare:ui && npm run build:ie",
     "test:modal-background": "node tests/modal-background-smoke.js",
+    "pretest:import-search": "npm run prepare:ui && npm run build:ie",
+    "test:import-search": "node tests/import-search-smoke.js",
     "pretest:store": "npm run prepare:ui",
     "test:store": "node tests/store-smoke.js",
     "pretest:menu": "npm run prepare:ui",
@@ -56,13 +58,17 @@
     "test:private-security": "node tests/private-security-smoke.js",
     "prebuild": "npm run prepare:ui && npm run build:ie && electron scripts/create-icon.js",
     "build": "node scripts/package.mjs",
-    "build:compact": "npm run build -- --out=dist/compact --compact --zip",
+    "build:compact": "npm run build -- --compact --zip",
+    "build:release": "npm run build -- --channel=release --compact --zip",
+    "build:beta": "npm run build -- --channel=beta --compact --zip",
+    "build:preview": "npm run build:beta",
+    "dist:organize": "node scripts/organize-dist.mjs --apply",
     "package:size": "node scripts/package-size.mjs",
     "package:compact": "node scripts/compact-package.mjs"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
-    "electron": "44.7.0",
+    "electron": "44.7.2",
     "esbuild": "^0.28.2",
     "playwright": "1.64.0"
   },

@@ -37,7 +37,7 @@
       <form class="address-box" id="address-form">
         <button type="button" class="address-symbol" id="address-symbol" data-icon="search" aria-label="网站信息" aria-haspopup="dialog"></button>
         <button type="button" id="compatibility-button" class="compatibility-badge" hidden aria-label="退出 IE 兼容模式">IE</button>
-        <input id="address" aria-label="地址栏" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false">
+        <input id="address" aria-label="地址栏" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="address-candidate-list">
         <span class="address-hint" id="address-hint">Ctrl L</span>
         <button type="button" class="icon-button bookmark-button" id="bookmark" data-icon="star" title="收藏此页面 (Ctrl+D)" aria-label="收藏此页面"></button>
       </form>
@@ -65,6 +65,7 @@
         <p id="private-note" class="private-note" hidden>无痕浏览：关闭全部无痕窗口后清除网站数据。下载的文件和主动添加的收藏会保留。</p>
         <form id="search-form" class="home-search"><span data-icon="search"></span><input id="search" placeholder="搜索或输入网址" autocomplete="off" aria-label="搜索或输入网址"><button type="submit" aria-label="搜索" title="搜索" data-icon="right"></button></form>
         <div class="shortcuts" id="shortcuts" aria-label="最近浏览的网站"></div>
+        <div id="import-welcome" class="import-welcome" hidden><div><strong>把熟悉的浏览资料带到 luna</strong><span>从 Edge 等浏览器导入收藏、历史、下载记录与密码。</span></div><button id="import-welcome-open" class="secondary-button">导入浏览资料</button><button id="import-welcome-dismiss" class="icon-button" data-icon="close" aria-label="稍后导入"></button></div>
       </div>
       <button class="customize-button" id="customize" title="打开外观设置"><span data-icon="pencil"></span>自定义 luna</button>
     </section>
@@ -76,6 +77,7 @@
           <button data-settings-section="search"><span data-icon="search"></span>搜索引擎</button>
           <button data-settings-section="appearance"><span data-icon="palette"></span>外观</button>
           <button data-settings-section="startup"><span data-icon="power"></span>启动与主页</button>
+          <button data-settings-section="import"><span data-icon="folder"></span>导入浏览资料</button>
           <button data-settings-section="downloads"><span data-icon="download"></span>下载</button>
           <button data-settings-section="privacy"><span data-icon="shield"></span>隐私与数据</button>
           <button data-settings-section="passwords"><span data-icon="key"></span>密码管理器</button>
@@ -88,6 +90,10 @@
           <section class="settings-group" data-group="search" data-keywords="搜索引擎 百度 Google Bing DuckDuckGo">
             <h3>搜索引擎</h3>
             <div class="settings-card"><label class="setting-row"><span class="setting-label">地址栏与主页搜索</span><select id="setting-searchEngine" data-setting="searchEngine"><option value="baidu">百度</option><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select></label></div>
+            <div class="settings-card"><label class="setting-row"><span class="setting-label">显示在线搜索建议<span class="setting-detail">将关键词发送给当前搜索引擎，无痕窗口仅使用本地候选</span></span><input type="checkbox" class="switch" id="setting-searchSuggestions" data-setting="searchSuggestions"></label></div>
+          </section>
+          <section class="settings-group" data-group="import" data-keywords="导入 浏览资料 Edge Chrome Brave Vivaldi Firefox 收藏 书签 历史 下载 密码">
+            <h3>从其他浏览器导入</h3><div class="settings-card"><div class="setting-row setting-row-stacked"><span class="setting-label">继续使用你的浏览资料<span class="setting-detail">自动发现本机浏览器配置，选择要导入的数据。原浏览器的数据会保留。</span></span><button id="browser-import-open" class="primary-button">选择浏览器与数据</button></div><div class="setting-row"><span class="setting-label">密码 CSV<span class="setting-detail">来源浏览器无法直接解密时，可导出 CSV 后导入。</span></span><button id="browser-import-csv" class="secondary-button">导入密码 CSV</button></div></div>
           </section>
           <section class="settings-group" data-group="appearance" data-keywords="外观 主题 深色 浅色 系统 收藏栏 主页 快捷方式 最近浏览">
             <h3>主题与布局</h3>
@@ -245,7 +251,17 @@
     <div class="extensions-menu-footer"><button id="extensions-menu-manage"><span data-icon="puzzle"></span>管理扩展程序</button><button id="extensions-menu-store"><span data-icon="download"></span>获取 Edge 扩展程序</button></div>
   </aside>
   <aside id="password-popup" class="password-popup" hidden role="dialog" aria-label="密码管理器"><div class="password-popup-heading"><span data-icon="key"></span><h2 id="password-popup-title">密码管理器</h2><button id="password-popup-close" class="icon-button" data-icon="close" aria-label="关闭密码面板"></button></div><div id="password-popup-content"></div><button class="password-popup-footer" id="password-manage">管理密码<span data-icon="right"></span></button></aside>
-  <aside id="address-suggestions" class="address-suggestions" role="listbox" aria-label="地址栏候选" hidden></aside>
+  <aside id="address-suggestions" class="address-suggestions" aria-label="地址栏候选" hidden></aside>
+  <dialog id="browser-import-dialog" class="essentials-dialog import-dialog" aria-labelledby="browser-import-title"><form id="browser-import-form">
+    <div class="dialog-top"><h2 id="browser-import-title">导入浏览资料</h2><button type="button" id="browser-import-close" class="icon-button" data-icon="close" aria-label="关闭导入"></button></div>
+    <p class="essentials-note">自动发现本机浏览器。导入会保留原资料，并跳过 Luna 中已有的重复记录。</p>
+    <label>来源浏览器与配置<select id="browser-import-profile" aria-label="来源浏览器与配置"></select></label>
+    <p id="browser-import-profile-note" class="essentials-note"></p>
+    <div class="import-types"><label><input type="checkbox" data-import-type="bookmarks"><span><strong>收藏与书签</strong><small>保留文件夹和网址</small></span></label><label><input type="checkbox" data-import-type="history"><span><strong>浏览历史</strong><small>保留访问时间，最多 10000 个网址</small></span></label><label><input type="checkbox" data-import-type="downloads"><span><strong>下载记录</strong><small>保留位置和时间，不重新下载文件</small></span></label><label><input type="checkbox" data-import-type="passwords"><span><strong>已保存的密码</strong><small>仅导入当前账号可解密的密码</small></span></label></div>
+    <div id="browser-import-result" class="import-result" role="status" aria-live="polite" hidden></div>
+    <p id="browser-import-error" class="form-error" role="status"></p>
+    <div class="dialog-actions"><button type="button" id="browser-import-refresh" class="text-button">重新检测</button><button type="button" id="browser-import-password-csv" class="secondary-button">导入密码 CSV</button><button type="submit" id="browser-import-submit" class="primary-button">开始导入</button></div>
+  </form></dialog>
   <dialog id="password-dialog" aria-labelledby="password-dialog-title"><form id="password-form" autocomplete="off"><div class="dialog-top"><h2 id="password-dialog-title">添加密码</h2><button type="button" id="password-dialog-close" class="icon-button" data-icon="close" aria-label="关闭密码编辑"></button></div><label>网站<input id="password-origin" type="url" placeholder="https://example.com" required maxlength="8192"></label><label>账号<input id="password-username" maxlength="512" placeholder="用户名或邮箱"></label><label>密码<div class="password-input-wrap"><input id="password-value" type="password" required maxlength="4096" autocomplete="off"><button type="button" id="password-show" class="text-button">显示</button></div></label><div class="password-editor-tools"><button type="button" id="password-generate" class="text-button">生成强密码</button><small>关闭后清除显示的密码</small></div><p id="password-form-error" class="form-error" role="status"></p><div class="dialog-actions"><button type="button" id="password-dialog-cancel" class="secondary-button">取消</button><button type="submit" class="primary-button">保存</button></div></form></dialog>
   <dialog id="shortcut-dialog"><form id="shortcut-form"><div class="dialog-top"><h2>添加快捷方式</h2><button type="button" class="icon-button" id="dialog-close" data-icon="close" aria-label="关闭"></button></div><label>名称<input id="shortcut-name" maxlength="60" placeholder="网站名称" required></label><label>网址<input id="shortcut-url" maxlength="2000" placeholder="https://example.com" required></label><span class="form-error" id="shortcut-error" role="status"></span><div class="dialog-actions"><button type="button" class="secondary-button" id="dialog-cancel">取消</button><button type="submit" class="primary-button">完成</button></div></form></dialog>
   <dialog id="download-dialog"><form id="download-form"><div class="dialog-top"><h2>新建下载</h2><button type="button" class="icon-button" id="download-dialog-close" data-icon="close" aria-label="关闭"></button></div><label>下载链接<input id="download-url" type="url" placeholder="https://example.com/file.zip" required></label><div class="dialog-actions"><button type="button" class="secondary-button" id="download-dialog-cancel">取消</button><button type="submit" class="primary-button">下载</button></div></form></dialog>
@@ -304,6 +320,7 @@
   <script src="browser-menu-ui.js"></script>
   <script src="workspace-ui.js"></script>
   <script src="essentials-ui.js"></script>
+  <script src="browser-import-ui.js"></script>
   <script src="modal-source.js"></script>
   <script src="app.js"></script>
 </body>

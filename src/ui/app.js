@@ -150,6 +150,7 @@ function render(newState) {
   window.browserMenu.update(state);
   window.workspaceUI.update(state);
   window.essentialsUI.update(state);
+  window.importUI?.update(state);
   window.browserDialogs.sync(state.prompt);
   const tab = activeTab();
   if (!tab) return;
@@ -293,13 +294,13 @@ function renderShortcuts() {
   add.append(symbol, el('span', 'shortcut-title', '添加快捷方式')); add.onclick = addShortcut; $('#shortcuts').append(add);
 }
 function renderSettings() {
-  const names = { search: '搜索引擎', appearance: '外观', startup: '启动与主页', downloads: '下载', passwords: '密码管理器', privacy: '隐私与数据', about: '关于 luna' };
+  const names = { search: '搜索引擎', appearance: '外观', startup: '启动与主页', import: '导入浏览资料', downloads: '下载', passwords: '密码管理器', privacy: '隐私与数据', about: '关于 luna' };
   const query = $('#settings-search').value.trim().toLowerCase();
   $('#settings-title').textContent = query ? '搜索结果' : names[settingsSection];
   document.querySelectorAll('[data-settings-section]').forEach(button => button.classList.toggle('selected', !query && button.dataset.settingsSection === settingsSection));
   let visible = 0;
   document.querySelectorAll('[data-group]').forEach(group => {
-    group.hidden = state.private && group.dataset.group === 'passwords' || (query ? !group.dataset.keywords.toLowerCase().includes(query) : group.dataset.group !== settingsSection);
+    group.hidden = state.private && ['passwords', 'import'].includes(group.dataset.group) || (query ? !group.dataset.keywords.toLowerCase().includes(query) : group.dataset.group !== settingsSection);
     if (!group.hidden) visible++;
   });
   $('#settings-empty').hidden = visible > 0;

@@ -49,8 +49,8 @@ test('recent websites deduplicate origins and put manual shortcuts first', () =>
   assert.equal(recentSites(history, manual)[0].title, 'Pinned'); assert.equal(recentSites(history, manual, 1).length, 1);
 });
 test('stored data is deduplicated and bounded', () => {
-  const data = sanitizeData({ bookmarks: [{ url: 'https://example.com', title: 'First' }, { url: 'https://example.com', title: 'Second' }], history: Array.from({ length: 600 }, (_, index) => ({ url: 'https://example.com/' + index })) });
-  assert.equal(data.bookmarks.length, 1); assert.equal(data.bookmarks[0].title, 'Second'); assert.equal(data.history.length, 500);
+  const data = sanitizeData({ bookmarks: [{ url: 'https://example.com', title: 'First' }, { url: 'https://example.com', title: 'Second' }], history: Array.from({ length: 10500 }, (_, index) => ({ url: 'https://example.com/' + index })) });
+  assert.equal(data.bookmarks.length, 1); assert.equal(data.bookmarks[0].title, 'Second'); assert.equal(data.history.length, 10000);
 });
 test('bookmarks and history survive restart; corrupt data can recover', t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-store-'));

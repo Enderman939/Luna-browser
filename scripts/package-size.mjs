@@ -43,5 +43,6 @@ export function measurePackage(directory) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(JSON.stringify(measurePackage(process.argv[2] || 'dist/luna-win32-x64'), null, 2));
+  const channel = fs.existsSync('dist/beta/luna-win32-x64/luna.exe') ? 'beta' : 'release';
+  console.log(JSON.stringify(measurePackage(process.argv[2] || `dist/${channel}/luna-win32-x64`), null, 2));
 }

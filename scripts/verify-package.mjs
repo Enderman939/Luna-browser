@@ -8,7 +8,8 @@ import { diskSize } from './compact-package.mjs';
 
 const require = createRequire(import.meta.url);
 const AdmZip = require('adm-zip');
-const directory = path.resolve(process.argv[2] || 'dist/compact/luna-win32-x64');
+const channel = require('../package.json').version.includes('-') ? 'beta' : 'release';
+const directory = path.resolve(process.argv[2] || `dist/${channel}/luna-win32-x64`);
 const archive = path.join(directory, 'resources/app.asar');
 const metadata = JSON.parse(asar.extractFile(archive, 'package.json').toString());
 const packageFiles = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'));
@@ -17,6 +18,7 @@ const packageFiles = asar.listPackage(archive).map(file => file.replaceAll('\\',
 const privateSupported = packageFiles.includes('/src/private-protection.js');
 const essentialsSupported = packageFiles.includes('/src/site-permissions.js');
 const modalSupported = packageFiles.includes('/src/modal-layer.js');
+const importSupported = packageFiles.includes('/src/browser-import.js');
 const zipFile = path.join(path.dirname(directory), `luna-${metadata.version}-win32-x64.zip`);
 const zip = new AdmZip(zipFile);
 assert.equal(zip.test(), true, 'ZIP CRC checks pass for every entry');
@@ -28,6 +30,7 @@ const required = ['luna.exe', 'resources/app.asar', 'resources/luna-ie-host.exe'
   'vulkan-1.dll', 'icudtl.dat', 'resources.pak', 'v8_context_snapshot.bin',
   'snapshot_blob.bin', 'locales/en-US.pak', 'locales/zh-CN.pak', 'locales/zh-TW.pak'];
 if (privateSupported) required.push('resources/luna-private-cleanup.exe');
+if (importSupported) required.push('resources/luna-browser-import.exe');
 for (const file of required) assert.ok(entries.has(prefix + file), `ZIP includes ${file}`);
 assert.deepEqual(zip.getEntry(prefix + 'resources/app.asar').getData(), fs.readFileSync(archive), 'ZIP contains the tested application archive');
 assert.ok(packageFiles.includes('/LICENSE'), 'application GPL license is retained');
@@ -64,13 +67,22 @@ if (modalSupported) {
   assert.equal(result.passed, true); assert.equal(result.version, metadata.version); assert.equal(result.defaultGPU.gpu_compositing, 'enabled');
   assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'live dialog backgrounds were checked after packaging');
 }
+if (importSupported) {
+  const result = JSON.parse(fs.readFileSync('artifacts/import-search-result.json', 'utf8'));
+  assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
+  assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'import, search and file deletion were checked after packaging');
+}
 assert.ok(Date.parse(visibility.testedAt) >= Date.parse(report.testedAt), 'IE visibility was checked after packaging');
-report.baseline = { ...measurePackage(report.baseline.directory), ...await diskSize(report.baseline.directory) };
+if (report.baseline && path.resolve(report.baseline.directory) !== directory && fs.existsSync(path.join(report.baseline.directory, 'resources/app.asar'))) {
+  report.baseline = { ...measurePackage(report.baseline.directory), ...await diskSize(report.baseline.directory) };
+} else if (report.baseline) report.baseline.historical = true;
 report.package = measurePackage(directory);
-for (const measurement of [report.compression.before, report.compression.after]) {
+for (const measurement of [report.compression?.before, report.compression?.after].filter(Boolean)) {
   if ('files' in measurement) { measurement.fileCount = measurement.files; delete measurement.files; }
 }
-report.compression.after = await diskSize(directory);
+const currentDisk = await diskSize(directory);
+if (report.compression) report.compression.after = currentDisk;
+report.disk = currentDisk;
 report.validation = {
   passed: true,
   checks: ['ZIP CRCs and runtime resources', 'application archive matches ZIP', 'licenses retained',
@@ -84,12 +96,14 @@ if (privateSupported) {
 }
 if (essentialsSupported) { report.validation.checks.push('website authorization, tab/view transfers, bookmark HTML migration, external URL dispatch and isolated Windows registration'); report.validation.artifacts.push('essentials-result.json'); }
 if (modalSupported) { report.validation.checks.push('real desktop live Chromium/IE backgrounds below modal dialogs, click isolation and nested form input'); report.validation.artifacts.push('modal-background-result.json'); }
+if (importSupported) { report.validation.checks.push('read-only browser import, DPAPI/AES-GCM password migration, search-first suggestions and confirmed recycle-bin deletion'); report.validation.artifacts.push('import-search-result.json'); }
 fs.writeFileSync(resultFile, JSON.stringify(reports, null, 2));
 console.log(JSON.stringify({
   version: metadata.version,
   logicalMiB: report.package.totalMiB,
-  diskMiB: +(report.compression.after.allocatedBytes / 1048576).toFixed(2),
+  diskMiB: +(currentDisk.allocatedBytes / 1048576).toFixed(2),
   zipMiB: +(fs.statSync(zipFile).size / 1048576).toFixed(2),
-  diskReductionPercent: +((1 - report.compression.after.allocatedBytes / report.baseline.allocatedBytes) * 100).toFixed(1),
+  diskReductionPercent: report.baseline?.allocatedBytes ? +((1 - currentDisk.allocatedBytes / report.baseline.allocatedBytes) * 100).toFixed(1) : null,
+  baselineHistorical: report.baseline?.historical === true,
   passed: true,
 }, null, 2));

@@ -16,3 +16,8 @@ if (cleanup.stdout) console.log(cleanup.stdout.trim());
 if (cleanup.stderr) console.error(cleanup.stderr.trim());
 if (cleanup.status !== 0) throw new Error('Private cleanup helper compilation failed');
 console.log('Built native private cleanup helper (x86)');
+const importer = spawnSync(compiler, ['/nologo','/target:exe','/platform:anycpu','/optimize+','/reference:System.Security.dll','/reference:System.Web.Extensions.dll',`/out:${path.join(directory,'luna-browser-import.exe')}`,path.join(directory,'BrowserImport.cs')], { encoding: 'utf8' });
+if (importer.stdout) console.log(importer.stdout.trim());
+if (importer.stderr) console.error(importer.stderr.trim());
+if (importer.status !== 0) throw new Error('Browser import helper compilation failed');
+console.log('Built native Windows browser import helper');

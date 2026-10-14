@@ -2,17 +2,38 @@
 
 一个可直接运行的 Windows 桌面浏览器，使用 Electron / Chromium 加载真实网页。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前公开版本：**1.0.0**。支持 Windows 10 及以上的 x64 系统。
+当前公开版本：**1.1.0**，使用 **Electron 44.7.2**。支持 Windows 10 及以上的 x64 系统。
+
+双击 `start.cmd` 运行 `dist/release/luna-win32-x64/luna.exe`。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
+
+### 1.1.0 新增功能
+
+- **导入浏览资料**：新标签页首次提示提供入口，也可在 **设置 → 导入浏览资料** 选择。自动发现当前用户默认位置的 Edge、Chrome、Brave、Vivaldi 和 Firefox 配置；勾选收藏、历史、下载记录和密码后确认导入。收藏保留文件夹，历史最多保留 10000 个网址，下载历史最多保留 1000 条；重复导入跳过已有数据。来源只读，原浏览器数据保留。
+- **密码导入**：支持同一 Windows 用户可解密的旧 DPAPI 和 Chromium v10/v11 AES-GCM 密码，导入后重新加密到 Luna 密码库。现代 Edge/Chrome 的应用绑定 v20 密码与 Firefox 的 NSS 密码使用 CSV 路径，导入结果会说明无法直接读取的数量。在来源浏览器的密码管理器中导出 CSV，再点击 **导入密码 CSV**；Luna 不会自动读取或保留明文导出文件。来源正在使用、文件锁定或格式不兼容时，请关闭来源浏览器后重试。
+- **下载删除**：每条记录提供 **移除记录**，保留已下载文件；未完成任务先确认取消。已完成记录还可 **删除文件**，显示实际路径并确认后移入 Windows 回收站，同时移除记录。原文件已不存在时可只移除记录。原生 Chromium 下载的结束记录也会保存到下次启动。
+- **搜索候选**：输入关键词时依次显示当前搜索、当前引擎的在线建议及本地记录，明确网址优先直达。匹配词加粗，支持方向键、Enter、鼠标和历史／收藏／标签筛选。**设置 → 搜索引擎 → 显示在线搜索建议** 可关闭联网；无痕不请求在线建议、不读取普通历史。在线请求不携带网站 Cookie，超时或网络不可用时保留当前搜索与本地候选。
+
+`npm run test:import-search` 包含合成浏览器配置、真实 Windows 密码加密迁移、重复导入、实际候选列表、过期请求、无痕限制及回收站删除。`npm run build:release` 在 `dist/release` 生成正式版目录和 ZIP。
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.0.0-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.1.0-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
 
-Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.0.0-win32-x64.zip -Algorithm SHA256` 校验下载文件。
+Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.1.0-win32-x64.zip -Algorithm SHA256` 校验下载文件。
 
 ## 启动
 
-双击工作目录中的 **start.cmd**，优先启动 **dist/compact/luna-win32-x64/luna.exe** 精简版；没有精简版时启动 **dist/luna-win32-x64/luna.exe**。
+双击工作目录中的 **start.cmd**，启动 **dist/release/luna-win32-x64/luna.exe**；没有正式成品时从源码运行。在终端运行 `start.cmd beta` 可选择本地 Beta，`start.cmd release` 可明确选择正式版。
+
+`dist` 只保留一个正式版和一个 Beta，各自包含可运行目录、对应 ZIP 和 `SHA256SUMS.txt`：
+
+```text
+dist/
+  release/  正式版，目前为 1.1.0
+  beta/     本地体验版（如有）
+```
+
+构建按版本号自动选择目录：稳定版本进入 `release`，带预发布标识的版本进入 `beta`。新 ZIP 校验成功后清理同一目录的旧 ZIP；跨类型输出会被拒绝，以防 Beta 覆盖正式版。程序更新前应关闭该目录下运行的浏览器。
 
 打包目录里的其他文件也是运行所需文件，移动程序时请移动整个 `luna-win32-x64` 文件夹。打包版不需要安装 Node.js。
 
@@ -32,7 +53,7 @@ npm start
 - 分屏：两个网页并排浏览，可选择现有标签或新地址、拖动分隔线、切换操作侧、交换左右及退出。
 - 标签页组：命名、颜色、折叠／展开、添加／移出标签、解除分组和确认关闭组。
 - IE 兼容模式：当前标签使用 Windows 的 IE11 / Trident 内核加载，双向同步网站 Cookie，切换模式时同步同源 localStorage 和 sessionStorage。
-- 地址与搜索：域名自动使用 HTTPS，localhost / IPv4 使用 HTTP，其他文本通过所选搜索引擎搜索；输入时显示本地已打开标签、收藏和历史候选，可用方向键／Enter 或鼠标选择。
+- 地址与搜索：域名自动使用 HTTPS，localhost / IPv4 使用 HTTP，其他文本通过所选搜索引擎搜索；输入时显示当前搜索、在线建议与本地标签、收藏和历史候选，可用方向键／Enter 或鼠标选择。
 - 网页导航：前进、后退、刷新、停止加载和错误重试。
 - 收藏、历史、下载分别拥有独立面板与工具栏按钮，面板中不提供跨功能切换。
 - 收藏：地址栏星标、收藏栏与收藏面板；文件夹、名称／网址编辑、移动、拖动排序和通用书签 HTML 导入导出，旧收藏自动迁移，支持最多 5000 条收藏和 1000 个文件夹。
@@ -68,7 +89,7 @@ npm start
 
 ### 基础操作
 
-地址栏候选只查询本地数据，不把输入发送给在线建议服务。同一网址优先显示“切换标签”；方向键选中后 Enter 切换或打开，未选择候选时 Enter 按原有地址／搜索规则执行。无痕候选不读取普通历史。
+地址栏输入关键词时，当前搜索在前，随后显示当前引擎的在线建议与本地候选；明确网址优先直达，同一网址优先显示“切换标签”。可按历史、收藏或标签筛选，方向键选中后 Enter 切换或打开。在线建议可在设置中关闭；无痕候选不联网、不读取普通历史。
 
 拖动标签到其他标签前可排序，跨已有窗口拖放可移动；右键标签也可 **移动到新窗口** 或选择已有窗口。Chromium 标签转移正在运行的网页视图，保留未保存输入、页面 JS 和导航记录。普通与无痕窗口之间不能移动。网页加载完成后才能跨窗口移动；IE 标签同步数据后在目标窗口重建原生 IE 视图。固定标签排在前方，不能同时加入标签组；固定和静音状态随会话恢复。批量关闭操作保留固定标签。
 
@@ -261,16 +282,19 @@ npm run test:ie-visibility # 默认 GPU 下检查实际桌面显示、真实鼠�
 npm run test:private-security # 本机服务器检查广告/追踪/Worker/iframe 拦截、扩展无痕授权和存储隔离/清理
 npm run test:essentials # 实际网站授权、地址候选、拖动/转移标签、收藏迁移和外部链接；注册写独立测试目录
 npm run test:modal-background # 默认 GPU 与实际桌面像素检查弹窗背景重绘、输入隔离、嵌套表单、分屏/无痕/IE
-npm run build        # 打包 Windows x64 可运行目录
-npm run build:compact # 打包至 dist/compact，使用 Windows LZX 减少磁盘占用，并生成 ZIP
-npm run package:size # 分析标准成品逻辑体积；可加 -- dist/compact/luna-win32-x64
+npm run test:import-search # 检查浏览器资料导入、Windows 密码迁移、搜索候选和下载删除
+npm run build        # 按当前版本号输出到 dist/release 或 dist/beta，生成运行目录和 ZIP
+npm run build:compact # 同上，并使用 Windows LZX 减少磁盘占用
+npm run build:beta   # 构建 Beta；package.json 必须使用预发布版本号
+npm run build:release # 构建正式版；package.json 必须使用稳定版本号
+npm run package:size # 分析 Beta 成品逻辑体积；也可加 -- dist/release/luna-win32-x64
 ```
 
 集成检查使用临时用户目录和本地测试服务器，覆盖原有浏览流程、实际 Range 并行请求、Cookie 认证、暂停/恢复、限速、分段缓存、文件字节一致性、原生 POST 下载、文件图标、真实 favicon 和 Chrome MV3 插件的网页脚本、弹窗、tabs API、CRX 安装与持久化。结果和界面截图保存在 `artifacts/`。
 
 打包默认保留简体中文、繁体中文和英文回退语言资源，清除依赖中的类型声明、源码映射和开发报告；网站仍可显示各种语言。需要所有 Chromium 界面语言时可运行 `npm run build -- --all-locales`。保留 Chromium 内核、显卡/软件渲染、视频、打印、开发者工具、IE 宿主和第三方许可文件。
 
-`build:compact` 需要 Windows 10 或以上、NTFS 文件系统。LZX 使用 Windows 的透明文件压缩，直接双击 luna.exe 即可运行，不需要先解压。资源管理器中的“大小”是逻辑字节数，“占用空间”才是压缩后的磁盘用量。ZIP 用于下载或复制；解压或复制到其他目录后，LZX 压缩属性可能不保留，可运行 `npm run package:compact -- <成品目录>` 重新应用。此操作只处理指定成品目录，不处理用户浏览数据或整个磁盘。构建的大小统计保存在 `artifacts/package-size-result.json`。
+`build:compact`、`build:beta` 和 `build:release` 需要 Windows 10 或以上、NTFS 文件系统。LZX 使用 Windows 的透明文件压缩，直接双击 luna.exe 即可运行，不需要先解压。资源管理器中的“大小”是逻辑字节数，“占用空间”才是压缩后的磁盘用量。ZIP 用于下载或复制；解压或复制到其他目录后，LZX 压缩属性可能不保留，可运行 `npm run package:compact -- <成品目录>` 重新应用。此操作只处理指定成品目录，不处理用户浏览数据或整个磁盘。构建的大小统计保存在 `artifacts/package-size-result.json`。
 
 精简成品逻辑体积约 323 MiB，本机 NTFS 压缩后占用约 138 MiB，ZIP 约 142 MiB；具体大小以 Release 附件为准。精简成品已通过扩展/下载、二维码/阅读/网页工具和默认 GPU 下的真实 IE 显示回归。
 
@@ -300,7 +324,7 @@ src/ui/           中文界面、样式与交互
 tests/            单元与实际浏览流程测试
 ```
 
-浏览数据保存在 `%APPDATA%/luna`。首次升级时会复制旧版 `%APPDATA%/Luma` 的数据，保留原目录。分段下载记录可跨会话恢复，Chromium 原生下载记录只显示本次会话。
+浏览数据保存在 `%APPDATA%/luna`。首次升级时会复制旧版 `%APPDATA%/Luma` 的数据，保留原目录。分段下载记录可跨会话恢复；已结束的 Chromium 原生下载和导入的下载历史也会保存到下次启动。
 
 当前版本支持 HTTP / HTTPS 网页与默认浏览器注册，支持摄像头、麦克风、定位、通知和读取剪贴板的网站授权。跨设备同步、联系人／地址自动填充、浏览器自身自动更新及在线恶意网址信誉服务尚未实现。受 DRM 或特定浏览器要求限制的网站可能无法完整使用。
 

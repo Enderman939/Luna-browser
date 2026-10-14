@@ -36,5 +36,6 @@ export async function compactPackage(directory) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await compactPackage(process.argv[2] || 'dist/compact/luna-win32-x64');
+  const channel = fs.existsSync('dist/beta/luna-win32-x64/luna.exe') ? 'beta' : 'release';
+  await compactPackage(process.argv[2] || `dist/${channel}/luna-win32-x64`);
 }

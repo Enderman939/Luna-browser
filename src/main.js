@@ -13,6 +13,9 @@ const { setSessionPartitionResolver } = require('electron-chrome-extensions');
 const { PrivateProtection } = require('./private-protection');
 const { SitePermissions, secureOrigin } = require('./site-permissions');
 const { addressCandidates } = require('./address-candidates');
+const { SearchSuggestions, searchCandidates } = require('./search-suggestions');
+const { BrowserImporter, TYPES: IMPORT_TYPES } = require('./browser-import');
+const { DownloadHistory, fileIdentity } = require('./download-history');
 const { parseBookmarkHTML, exportBookmarkHTML } = require('./bookmarks');
 const { externalURLs, registerBrowser, defaultStatus } = require('./default-browser');
 const { cleanupPrivateDirectories, createPrivateDirectory, removePrivateDirectory, watchPrivateCleanup } = require('./private-sessions');
@@ -50,7 +53,7 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const launchURLs = externalURLs(process.argv);
 const browsers = new Set(), services = new Map(), closedSessions = [];
-let sharedStore, sharedAssets, sharedExtensions, sharedVault, privateContext, extensionsReady, tabSequence = 0;
+let sharedStore, sharedAssets, sharedExtensions, sharedVault, sharedImporter, privateContext, extensionsReady, tabSequence = 0;
 const privateSessionsRoot = path.join(profile, 'private-sessions');
 const extensionPartitions = new Map();
 setSessionPartitionResolver(partition => {
@@ -98,7 +101,7 @@ const directory = isPrivate ? privateContext.directory : app.getPath('userData')
 let window, store = isPrivate ? privateContext.store : sharedStore, activeId, overlay = false, updateTimer;
 let downloadManager, extensionManager, nativeTimer, closing = false;
 let registeringTab = false;
-let prompts, browsingData, closePending = false, clearingPromise = null, modalOpen = false;
+let prompts, browsingData, closePending = false, clearingPromise = null, importingPromise = null, modalOpen = false;
 let popovers;
 let modalLayer;
 let contextMenus, pageTools;
@@ -110,9 +113,12 @@ let lastWindowIcon = null;
 let bounds = { x: 0, y: 144, width: 1200, height: 600 };
 const tabs = new Map();
 let downloads = new Map();
+let downloadHistory;
+const suggestionService = new SearchSuggestions((url, options) => session.fromPartition('luna-search-suggestions', { cache: false }).fetch(url, options));
+let suggestionRequest = 0;
 const closedTabs = [];
 let controller, split = null;
-let suggestions = { query: '', items: [], selected: -1 };
+let suggestions = { query: '', items: [], selected: -1, filter: 'all', phrases: [] };
 const groups = new Map();
 const MENU_ACTIONS = new Set(['ie-mode','new-tab','new-window','private-window','groups','split','bookmarks','history','downloads','extensions','passwords','clear-data','print','translate-page','screenshot','find','save-page','reading-page','qr','screenshot-full','source','devtools','settings','shortcuts','about','close','edge-store','chrome-store','zoom-out','zoom-in','zoom-reset','fullscreen']);
 
@@ -130,6 +136,7 @@ function snapshot() {
     activeId, bookmarks: store.data.bookmarks, bookmarkFolders: store.data.bookmarkFolders, history: store.data.history,
     shortcuts: store.data.shortcuts, recentSites: recentSites(isPrivate ? [] : store.data.history, store.data.shortcuts),
     private: isPrivate, windowId: window.id, groups: [...groups.values()], split,
+    importWelcomeSeen: store.data.importWelcomeSeen,
     siteInfo: sitePermissions && isWebUrl(tabs.get(activeId)?.url) ? { tabId: activeId, origin: new URL(tabs.get(activeId).url).origin,
       secure: tabs.get(activeId).url.startsWith('https:') && !tabs.get(activeId).error, legacy: !!tabs.get(activeId).ie,
       security: tabs.get(activeId).security || null, permissions: sitePermissions.snapshot(new URL(tabs.get(activeId).url).origin) } : null,
@@ -141,7 +148,8 @@ function snapshot() {
     extensions: extensionManager?.snapshot() || [], extensionInstalling: extensionManager?.installing || false,
     extensionsEnabled: extensionManager?.globalEnabled !== false,
     extensionInstallState: extensionManager?.installState || null,
-    downloads: [...(downloadManager?.snapshot() || []), ...[...downloads.values()].map(({ item, file, lastReceived, lastTime, ...entry }) => entry)].sort((a, b) => a.createdAt - b.createdAt),
+    downloads: [...(downloadManager?.snapshot() || []), ...[...downloads.values()].map(({ item, file, lastReceived, lastTime, ...entry }) => entry),
+      ...[...(downloadHistory?.records.values() || [])].filter(entry => !downloads.has(entry.id)).map(({ file, fingerprint, ...entry }) => entry)].sort((a, b) => a.createdAt - b.createdAt),
     maximized: window.isMaximized(),
     fullscreen: window.isFullScreen(), windowWidth: window.getContentSize()[0],
     prompt: prompts?.active?.view || null,
@@ -186,6 +194,7 @@ function activateTab(id) {
   if (!tabs.has(id)) return;
   contextMenus?.close(true);
   popovers?.close(true);
+  suggestionService.cancel(); suggestionRequest++;
   activeId = id;
   if (split && ![split.leftId, split.rightId].includes(id)) split = null;
   extensionManager?.bridge.selectTab(tabs.get(id).view.webContents);
@@ -208,6 +217,7 @@ function navigate(tab, input) {
   if (isPrivate && input === EXTENSIONS) { toast('请在普通窗口中管理扩展程序'); input = HOME; }
   contextMenus?.close(true);
   popovers?.close(true);
+  suggestionService.cancel(); suggestionRequest++;
   const extensionOverride = input === HOME && !isPrivate ? extensionManager?.bridge.getURLOverrides().newtab : null;
   const url = extensionManager?.allowedURL(extensionOverride || input) ? extensionOverride || input : resolveAddress(input, store.data.settings.searchEngine);
   if (tab.ie) { compatibility.navigateTab(tab,url).catch(error=>toast(error.message)); return; }
@@ -623,6 +633,10 @@ function applySettings(value) {
   if (!isPrivate) nativeTheme.themeSource = store.data.settings.theme;
   store.save();
   if (previous.savePasswords !== store.data.settings.savePasswords || previous.autofillPasswords !== store.data.settings.autofillPasswords) passwordManager?.settingsChanged();
+  if (previous.searchSuggestions !== store.data.settings.searchSuggestions || previous.searchEngine !== store.data.settings.searchEngine) {
+    suggestionService.cancel(); suggestionRequest++; suggestions.phrases = []; suggestions.selected = -1;
+    suggestions.items = searchCandidates(suggestions.query, { tabs: [...tabs.values()], bookmarks: store.data.bookmarks, history: isPrivate ? [] : store.data.history }, store.data.settings.searchEngine, [], suggestions.filter);
+  }
   updateAppearanceWindows();
   sendState();
 }
@@ -668,7 +682,8 @@ async function beginManagedDownload(url, name, headers = {}, existing) {
 }
 function configureDownloads(webSession) {
   const existing = services.get(webSession);
-  if (existing) { downloadManager = existing.manager; downloads = existing.downloads; downloadManager.on('change', sendState); return; }
+  if (existing) { downloadManager = existing.manager; downloads = existing.downloads; downloadHistory = existing.history; downloadManager.on('change', sendState); return; }
+  downloadHistory = new DownloadHistory(directory, !isPrivate);
   downloadManager = new DownloadManager({ directory,
     fetch: (url, options) => webSession.fetch(url, { ...options, credentials: 'include' }),
     onComplete: async job => {
@@ -678,7 +693,7 @@ function configureDownloads(webSession) {
       else if (job.completion === 'reveal') shell.showItemInFolder(job.file);
     },
   });
-  services.set(webSession, { manager: downloadManager, downloads });
+  services.set(webSession, { manager: downloadManager, downloads, history: downloadHistory });
   downloadManager.on('change', sendState);
   nativeTimer = setInterval(() => {
     let active = false;
@@ -736,9 +751,11 @@ function handleNativeDownload(event, item, owner) {
       sendState();
     });
     item.once('done', async (_, state) => {
+      if (entry.removed) return;
       entry.status = state; entry.file = item.getSavePath(); entry.received = item.getReceivedBytes(); entry.total = item.getTotalBytes();
       entry.speed = 0; entry.eta = null;
       entry.threads = [{ id: 1, start: 0, end: entry.total ? entry.total - 1 : null, received: entry.received, status: state }];
+      downloadHistory.import([entry]);
       if (state === 'completed') {
         entry.icon = await fileIcon(entry.file, entry.name); toast('下载完成：' + name);
         if (entry.completion === 'open') { const error = await shell.openPath(entry.file); if (error) toast(error); }
@@ -781,7 +798,7 @@ async function requestClose() {
   popovers?.close(true);
   try {
     let result;
-    const activeDownloads = snapshot().downloads.filter(entry => !['completed', 'cancelled'].includes(entry.status)).length;
+    const activeDownloads = snapshot().downloads.filter(entry => !entry.historical && !['completed', 'cancelled'].includes(entry.status)).length;
     if (tabs.size > 1 || activeDownloads) {
       result = await prompts.ask({ kind: 'close-browser', title: '关闭浏览器', message: '关闭这 ' + tabs.size + ' 个标签页？',
         detail: activeDownloads ? '还有 ' + activeDownloads + ' 个下载未完成。分段下载将暂停并保留进度；原生下载可能需要重新下载。' : '',
@@ -804,6 +821,8 @@ async function requestClose() {
     }
     prompts.cancelAll();
     if (clearingPromise) await clearingPromise.catch(() => {});
+    if (importingPromise) await importingPromise.catch(() => {});
+    suggestionService.cancel();
     await Promise.all(saved.map(tab=>compatibility.closeTab(tab).catch(error=>toast(error.message))));
     const lastSessionWindow = ![...browsers].some(browser => browser !== controller && browser.webSession === webSession);
     if (lastSessionWindow) {
@@ -873,7 +892,7 @@ async function requestClose() {
   const service = services.get(webSession);
   if (!service.permissions) service.permissions = new SitePermissions({ session: webSession, store, owner: ownerOf, changed: broadcast });
   sitePermissions = service.permissions;
-  if (!service.browsingData) service.browsingData = new BrowsingData({ session: webSession, store, downloadManager, nativeDownloads: downloads, tabs: {
+  if (!service.browsingData) service.browsingData = new BrowsingData({ session: webSession, store, downloadManager, nativeDownloads: downloads, downloadHistory, tabs: {
     *values() { for (const browser of browsers) if (browser.webSession === webSession) yield* browser.tabs.values(); }
   }, passwordVault: passwordManager?.vault });
   browsingData = service.browsingData;
@@ -945,10 +964,11 @@ async function requestClose() {
   });
   ipcMain.handle('browser:command', async (event, action, payload) => {
     const popupSender = popovers?.owns(event.sender);
-    const popupActions = ['state', 'popover-open', 'popover-size', 'popover-close', 'browser-menu-action', 'extension-pin', 'extension-enable', 'extensions-enable', 'extension-remove', 'extension-options', 'extension-launch', 'extensions', 'extension-store', 'new-tab', 'navigate', 'download-action', 'new-download', 'remove-bookmark', 'clear-history', 'settings', 'password-settings', 'password-accept', 'password-never', 'password-dismiss', 'password-fill', 'clear-browsing-data', 'show-find', 'show-download-dialog', 'address-select', 'bookmark-manager'];
+    const popupActions = ['state', 'popover-open', 'popover-size', 'popover-close', 'browser-menu-action', 'extension-pin', 'extension-enable', 'extensions-enable', 'extension-remove', 'extension-options', 'extension-launch', 'extensions', 'extension-store', 'new-tab', 'navigate', 'download-action', 'new-download', 'remove-bookmark', 'clear-history', 'settings', 'password-settings', 'password-accept', 'password-never', 'password-dismiss', 'password-fill', 'clear-browsing-data', 'show-find', 'show-download-dialog', 'address-select', 'address-filter', 'bookmark-manager'];
     if (!window || event.senderFrame !== event.sender.mainFrame || (event.sender !== window.webContents && !(popupSender && popupActions.includes(action)))) throw new Error('Untrusted sender');
     const tab = tabs.get(activeId);
     if (isPrivate && (action.startsWith('password-') || action.startsWith('extension-') && !['extension-launch','extension-options','extension-action-anchor'].includes(action) || action === 'extensions-enable')) throw new Error('请在普通窗口中管理密码及扩展授权');
+    if (isPrivate && action.startsWith('browser-import')) throw new Error('请在普通窗口中导入浏览器数据');
     if (closing && !['state','modal-state','overlay'].includes(action)) return;
     if (action === 'password-settings') { popovers.close(true); openSettings(); window.webContents.send('browser:shortcut', 'password-settings'); return; }
     if(tab?.ie&&['password-fill','password-accept','extension-launch'].includes(action))throw new Error('IE 模式不支持 Chromium 扩展或密码自动填充');
@@ -957,6 +977,31 @@ async function requestClose() {
     switch (action) {
       case 'state': return snapshot();
       case 'dialog-snapshot': modalLayer.update(payload); return;
+      case 'browser-import-list': return sharedImporter.list();
+      case 'browser-import-dismiss': store.data.importWelcomeSeen = true; store.save(); sendState(); return;
+      case 'browser-import-run': {
+        if (importingPromise || sharedImporter.busy) throw new Error('正在导入，请等待完成');
+        const source = sharedImporter.profiles.get(payload?.id), types = payload?.types;
+        if (!source || !Array.isArray(types) || !types.length || types.some(type => !IMPORT_TYPES.includes(type))) throw new Error('请选择浏览器配置和数据类型');
+        const names = { bookmarks: '收藏', history: '历史', downloads: '下载记录', passwords: '密码' };
+        const confirmed = await prompts.ask({ kind: 'browser-import', title: '导入浏览器数据', message: '从 ' + source.browser + ' · ' + source.name + ' 导入 ' + types.map(type => names[type]).join('、') + '？', detail: '保留原浏览器数据和 Luna 中已有的记录。可解密的密码会重新加密保存到当前设备；受应用绑定保护的密码需使用 CSV。', confirmLabel: '导入' });
+        if (!confirmed.accepted) return null;
+        importingPromise = sharedImporter.read(source.id, types).then(data => {
+          const result = { warnings: data.warnings, results: {} };
+          for (const type of types) {
+            if (!data.outcomes[type]) continue;
+            try {
+              if (type === 'bookmarks') result.results[type] = store.importBookmarks(data.bookmarks);
+              if (type === 'history') result.results[type] = store.importHistory(data.history);
+              if (type === 'downloads') result.results[type] = downloadHistory.import(data.downloads);
+              if (type === 'passwords') { const summary = passwordManager.vault.import(data.passwords.entries); result.results[type] = { ...summary, skipped: summary.skipped + data.passwords.skipped + data.passwords.protectedCount, protectedCount: data.passwords.protectedCount }; }
+            } catch (error) { result.warnings.push({ type, message: String(error.message).slice(0, 250) }); }
+          }
+          if (data.passwords) { for (const entry of data.passwords.entries) entry.password = ''; data.passwords.entries.length = 0; }
+          store.data.importWelcomeSeen = true; store.save(); broadcast(); return result;
+        });
+        try { return await importingPromise; } finally { importingPromise = null; }
+      }
       case 'default-browser-status': return { ...await defaultStatus(process.execPath), available: app.isPackaged && process.platform === 'win32' && !customProfile };
       case 'default-browser-register': {
         if (!app.isPackaged || customProfile || process.platform !== 'win32') throw new Error('请在正式 Windows 成品中设置默认浏览器');
@@ -964,22 +1009,40 @@ async function requestClose() {
       }
       case 'address-suggest': {
         if (typeof payload?.query !== 'string' || payload.query.length > 8192 || modalOpen || prompts?.active) return;
-        suggestions = { query: payload.query, selected: -1, items: addressCandidates(payload.query, { tabs: [...tabs.values()], bookmarks: store.data.bookmarks, history: isPrivate ? [] : store.data.history }) };
+        const request = ++suggestionRequest; suggestionService.cancel();
+        const local = () => ({ tabs: [...tabs.values()], bookmarks: store.data.bookmarks, history: isPrivate ? [] : store.data.history });
+        const engine = store.data.settings.searchEngine;
+        suggestions = { query: payload.query, selected: -1, filter: 'all', phrases: [], items: searchCandidates(payload.query, local(), engine) };
         if (suggestions.items.length) await popovers.open('address', payload.anchor); else if (popovers.kind === 'address') popovers.close(true);
+        if (!isPrivate && store.data.settings.searchSuggestions && payload.query.trim()) {
+          suggestionService.get(payload.query, engine).then(phrases => {
+            if (request !== suggestionRequest || closing || suggestions.query !== payload.query || popovers.kind !== 'address' || suggestions.selected >= 0 || store.data.settings.searchEngine !== engine || !store.data.settings.searchSuggestions) return;
+            suggestions.phrases = phrases; suggestions.items = searchCandidates(payload.query, local(), engine, phrases, suggestions.filter); sendState();
+          });
+        }
+        sendState();
         return suggestions;
       }
+      case 'address-filter': {
+        if (!popupSender || popovers.kind !== 'address' || !['all', 'tab', 'bookmark', 'history'].includes(payload)) return;
+        suggestions.filter = payload; suggestions.selected = -1;
+        suggestions.items = searchCandidates(suggestions.query, { tabs: [...tabs.values()], bookmarks: store.data.bookmarks, history: isPrivate ? [] : store.data.history }, store.data.settings.searchEngine, suggestions.phrases, payload); break;
+      }
       case 'address-key': {
-        if (popovers.kind !== 'address' || !['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(payload)) return false;
-        if (payload === 'Escape') { popovers.close(true); return true; }
-        if (payload === 'Enter') {
+        const key = typeof payload === 'string' ? payload : payload?.key;
+        if (typeof payload === 'object' && payload.query !== suggestions.query) return false;
+        if (popovers.kind !== 'address' || !['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(key)) return false;
+        if (key === 'Escape') { suggestionService.cancel(); suggestionRequest++; popovers.close(true); return true; }
+        if (key === 'Enter') {
           const selected = suggestions.items[suggestions.selected]; if (!selected) return false;
           popovers.close(true); if (selected.tabId && tabs.has(selected.tabId)) activateTab(selected.tabId); else navigate(tab, selected.url); return true;
         }
-        suggestions.selected = (suggestions.selected + (payload === 'ArrowDown' ? 1 : suggestions.items.length - 1) + suggestions.items.length) % suggestions.items.length; sendState(); return true;
+        if (!suggestions.items.length) return false;
+        suggestions.selected = (suggestions.selected + (key === 'ArrowDown' ? 1 : suggestions.items.length - 1) + suggestions.items.length) % suggestions.items.length; sendState(); return true;
       }
       case 'address-select': {
         if (!popupSender || popovers.kind !== 'address' || payload?.query !== suggestions.query) return;
-        const selected = suggestions.items[payload.index]; if (!selected) return;
+        const selected = payload.url ? suggestions.items.find(item => item.url === payload.url && item.type === payload.type) : suggestions.items[payload.index]; if (!selected) return;
         popovers.close(true); if (selected.tabId && tabs.has(selected.tabId)) activateTab(selected.tabId); else navigate(tab, selected.url); return;
       }
       case 'site-permission-set': {
@@ -1000,7 +1063,7 @@ async function requestClose() {
         }
         context.protection.toggle(tab.view.webContents, payload); reloadTab(tab); break;
       case 'popover-open': contextMenus.close(true); await popovers.open(payload?.kind, payload?.anchor || popovers.anchor); return;
-      case 'popover-close': popovers.close(); return;
+      case 'popover-close': if (popovers.kind === 'address') { suggestionService.cancel(); suggestionRequest++; } popovers.close(); return;
       case 'popover-size': if (popupSender) popovers.resize(payload); return;
       case 'show-find': popovers.close(true); window.webContents.send('browser:shortcut', 'find'); return;
       case 'show-download-dialog': popovers.close(true); window.webContents.send('browser:shortcut', 'new-download'); return;
@@ -1186,15 +1249,31 @@ async function requestClose() {
       case 'find': if (typeof payload?.text === 'string' && payload.text.trim() && payload.text.length < 1000 && !isInternalUrl(tab.url)) {if(tab.ie){const result=await tab.ie.request('find',{text:payload.text,forward:payload.forward!==false?1:0});window.webContents.send('browser:find-result',result);}else tab.view.webContents.findInPage(payload.text, { forward: payload.forward !== false, findNext: !payload.next });} return;
       case 'stop-find': if(!tab?.ie)tab?.view.webContents.stopFindInPage('clearSelection'); break;
       case 'download-action': {
-        const entry = downloadManager.jobs.get(payload?.id) || downloads.get(payload?.id);
+        const entry = downloadManager.jobs.get(payload?.id) || downloads.get(payload?.id) || downloadHistory.records.get(payload?.id);
         if (!entry) break;
+        if (payload.action === 'remove' || payload.action === 'delete-file') {
+          if (payload.action === 'delete-file') {
+            if (entry.status !== 'completed') throw new Error('只能删除已完成下载的文件');
+            const identity = await fileIdentity(entry.file).catch(error => { throw new Error(error.code === 'ENOENT' ? '文件已不存在，可移除这条记录' : error.message); });
+            const confirmed = await prompts.ask({ kind: 'download-delete-file', title: '删除下载文件', message: '将“' + entry.name + '”移入回收站并移除记录？', detail: identity.real, confirmLabel: '删除文件' });
+            if (!confirmed.accepted) return;
+            const current = await fileIdentity(entry.file);
+            if (JSON.stringify(identity) !== JSON.stringify(current)) throw new Error('文件已变化，请重新确认删除');
+            await shell.trashItem(current.real);
+          } else if (!entry.historical && !['completed', 'cancelled', 'interrupted'].includes(entry.status) || downloadManager.jobs.has(entry.id) && entry.status === 'interrupted') {
+            const confirmed = await prompts.ask({ kind: 'download-remove', title: '移除下载', message: '取消此下载并移除记录？', detail: entry.name, confirmLabel: '取消并移除' }); if (!confirmed.accepted) return;
+          }
+          if (downloadManager.jobs.has(entry.id)) await downloadManager.remove(entry.id);
+          else { if (entry.item && !['completed', 'cancelled'].includes(entry.status)) { entry.removed = true; entry.item.cancel(); } downloads.delete(entry.id); }
+          downloadHistory.remove(entry.id); sendState(); return true;
+        }
         if (payload.action === 'open' && entry.status === 'completed') {
           if (downloadManager.jobs.has(entry.id)) await markDownloadedFile(entry.file, entry.url);
           const error = await shell.openPath(entry.file); if (error) toast('无法打开文件：' + error);
         }
         if (payload.action === 'reveal' && entry.status === 'completed') shell.showItemInFolder(entry.file);
         if (downloadManager.jobs.has(entry.id)) await downloadManager.action(entry.id, payload.action, payload.value);
-        else {
+        else if (!entry.historical) {
           if (payload.action === 'pause' && entry.status === 'progressing') { entry.item.pause(); entry.status = 'paused'; }
           if (payload.action === 'resume' && entry.status === 'paused') { entry.item.resume(); entry.status = 'progressing'; }
           if (payload.action === 'retry' && entry.status === 'interrupted' && isWebUrl(entry.url)) webSession.downloadURL(entry.url);
@@ -1242,6 +1321,7 @@ app.whenReady().then(async () => {
   if (!singleInstance) return;
   cleanupPrivateDirectories(privateSessionsRoot);
   sharedStore = new Store(app.getPath('userData'));
+   sharedImporter = new BrowserImporter({ helper: app.isPackaged ? path.join(process.resourcesPath, 'luna-browser-import.exe') : path.join(__dirname, 'native', 'luna-browser-import.exe') });
   sharedAssets = new AppearanceAssets(app.getPath('userData'), session.defaultSession);
   await sharedAssets.cleanup(sharedStore.data.settings.appearance);
   nativeTheme.themeSource = sharedStore.data.settings.theme;

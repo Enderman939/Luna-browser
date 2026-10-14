@@ -269,6 +269,13 @@ class DownloadManager extends EventEmitter {
     } else if (action === 'completion' && ['none', 'open', 'reveal'].includes(value)) job.completion = value;
     this.persist(); this.changed();
   }
+  async remove(id) {
+    const job = this.jobs.get(id); if (!job) return;
+    if (job.status === 'merging') throw new Error('请等待文件合并完成后移除');
+    if (!['completed', 'cancelled'].includes(job.status)) await this.action(id, 'cancel');
+    await fs.promises.rm(this.partDirectory(job), { recursive: true, force: true });
+    this.jobs.delete(id); this.persist(); this.changed();
+  }
   persist() {
     const data = [...this.jobs.values()].slice(-100).map(job => ({
       ...this.publicJob(job), file: job.file, overwrite: job.overwrite,

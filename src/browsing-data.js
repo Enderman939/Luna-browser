@@ -22,8 +22,8 @@ function nativeCookieTimes(directory) {
 }
 
 class BrowsingData {
-  constructor({ session, store, downloadManager, nativeDownloads, tabs, passwordVault }) {
-    Object.assign(this, { session, store, downloadManager, nativeDownloads, tabs, passwordVault });
+  constructor({ session, store, downloadManager, nativeDownloads, downloadHistory, tabs, passwordVault }) {
+    Object.assign(this, { session, store, downloadManager, nativeDownloads, downloadHistory, tabs, passwordVault });
     this.busy = false;
     session.cookies.on('changed', (_, cookie, cause, removed) => {
       const key = cookieKey(cookie);
@@ -54,7 +54,7 @@ class BrowsingData {
       history: this.store.data.history.filter(entry => inRange(entry.time, selection.start, selection.now)).length,
       cookies: selection.cookies.length, sites: sites.size, unknownCookies: selection.unknownCookies,
       cacheBytes, cacheScope: 'all',
-      downloads: [...this.downloadManager.jobs.values(), ...this.nativeDownloads.values()].filter(ended).length,
+      downloads: [...this.downloadManager.jobs.values(), ...this.nativeDownloads.values(), ...[...(this.downloadHistory?.records.values() || [])].filter(entry => !this.nativeDownloads.has(entry.id))].filter(ended).length,
       siteSettings: Object.values(this.store.data.siteSettings).filter(value => inRange(value.time, selection.start, selection.now)).length,
       autofill: 0, hostedApps: 0,
       passwords: this.passwordVault && !this.passwordVault.error && this.passwordVault.available() ? this.passwordVault.list().filter(entry => inRange(entry.updatedAt, selection.start, selection.now)).length : 0,
@@ -92,6 +92,8 @@ class BrowsingData {
         const ended = entry => ['completed', 'cancelled'].includes(entry.status) && inRange(entry.createdAt, start, now);
         for (const [id, entry] of this.downloadManager.jobs) if (ended(entry)) this.downloadManager.jobs.delete(id);
         for (const [id, entry] of this.nativeDownloads) if (ended(entry)) this.nativeDownloads.delete(id);
+        for (const [id, entry] of this.downloadHistory?.records || []) if (ended(entry) || entry.historical && inRange(entry.createdAt, start, now)) this.downloadHistory.records.delete(id);
+        this.downloadHistory?.save();
         this.downloadManager.persist(); this.downloadManager.changed();
       }
       if (types.includes('siteSettings')) {

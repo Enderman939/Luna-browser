@@ -36,22 +36,36 @@
     const address = $('#address'), rect = $('#address-form').getBoundingClientRect();
     call('address-suggest', { query: address.value, anchor: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
   }
-  $('#address').addEventListener('input', () => { clearTimeout(inputTimer); inputTimer = setTimeout(suggest, 70); });
+   $('#address').addEventListener('input', event => { clearTimeout(inputTimer); if (!event.isComposing) inputTimer = setTimeout(suggest, 150); });
+   $('#address').addEventListener('compositionend', () => { clearTimeout(inputTimer); inputTimer = setTimeout(suggest, 150); });
   $('#address').addEventListener('keydown', async event => {
     if (event.isComposing || !['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) return;
     event.preventDefault(); event.stopPropagation(); clearTimeout(inputTimer);
-    const handled = await call('address-key', event.key);
+    const handled = await call('address-key', { key: event.key, query: $('#address').value });
     if (event.key === 'Enter') { if (!handled) $('#address-form').requestSubmit(); else $('#address').blur(); }
     else if (event.key === 'ArrowDown' && !handled) suggest();
     else if (event.key === 'Escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });
   function renderAddress() {
     const list = $('#address-suggestions'); list.hidden = false; list.replaceChildren();
-    for (const [index, item] of (state.addressSuggestions?.items || []).entries()) {
-      const row = node('button', undefined, 'address-candidate'); row.setAttribute('role', 'option'); row.setAttribute('aria-selected', String(index === state.addressSuggestions.selected));
-      row.append(node('span', { tab: '切换标签', bookmark: '收藏', history: '历史' }[item.type], 'candidate-kind'), node('span', item.title, 'candidate-title'), node('small', item.url));
-      row.onclick = () => call('address-select', { query: state.addressSuggestions.query, index }); list.append(row);
+    const options = node('div', undefined, 'address-candidate-list'); options.id = 'address-candidate-list'; options.setAttribute('role', 'listbox'); list.append(options);
+    function highlight(title) {
+      const span = node('span', undefined, 'candidate-title'), query = state.addressSuggestions.query.trim(), index = title.toLowerCase().indexOf(query.toLowerCase());
+      if (query && index >= 0) { span.append(document.createTextNode(title.slice(0, index)), node('strong', title.slice(index, index + query.length)), document.createTextNode(title.slice(index + query.length))); } else span.textContent = title;
+      return span;
     }
+    for (const [index, item] of (state.addressSuggestions?.items || []).entries()) {
+      const row = node('button', undefined, 'address-candidate' + (item.type === 'search' ? ' search-candidate' : '')); row.id = 'address-candidate-' + index; row.dataset.type = item.type; row.setAttribute('role', 'option'); row.setAttribute('aria-selected', String(index === state.addressSuggestions.selected));
+      const symbol = node('span', undefined, 'candidate-symbol'); window.lunaSetIcon?.(symbol, { search: 'search', navigate: 'globe', tab: 'newtab', bookmark: 'star', history: 'history' }[item.type]);
+      row.append(symbol, highlight(item.title), node('span', item.type === 'search' ? item.engine : { tab: '切换标签', bookmark: '收藏', history: '历史', navigate: '直达网站' }[item.type], 'candidate-kind'));
+      if (item.type !== 'search') row.append(node('small', item.url));
+      const query = state.addressSuggestions.query; row.onclick = () => call('address-select', { query, index, url: item.url, type: item.type }); options.append(row);
+    }
+    if (!options.children.length) options.append(node('p', '没有匹配的本地记录', 'candidate-empty'));
+    const footer = node('div', undefined, 'address-filters'); footer.append(node('span', '筛选候选：'));
+    for (const [value, label] of [['all', '全部'], ['history', '历史'], ['bookmark', '收藏'], ['tab', '标签']]) { const button = node('button', label); button.dataset.filter = value; button.setAttribute('aria-pressed', String(state.addressSuggestions.filter === value)); button.onclick = () => call('address-filter', value); footer.append(button); }
+    footer.append(node('small', '↑↓ 选择 · Enter 打开')); list.append(footer);
+    const selected = options.querySelector('[aria-selected="true"]'); if (selected) selected.scrollIntoView({ block: 'nearest' });
     window.popoverHost.initialized();
   }
   let folderId = null, editing = null;
@@ -125,6 +139,8 @@
   }
   window.essentialsUI = { renderAddress, renderBookmarkPanel, openBookmarks, shortcut(value) { if (value.action === 'bookmark-manager') openBookmarks(); }, update(next) {
     state = next; if (window.popoverHost) return;
+    $('#address').setAttribute('aria-expanded', String(state.popover === 'address'));
+    if (state.popover === 'address' && state.addressSuggestions.selected >= 0) $('#address').setAttribute('aria-activedescendant', 'address-candidate-' + state.addressSuggestions.selected); else $('#address').removeAttribute('aria-activedescendant');
     $('#address-symbol').disabled = !state.siteInfo; if ($('#site-info-dialog').open) renderSite(); if ($('#bookmark-manager-dialog').open) renderManager();
     if (!defaultChecked) { defaultChecked = true; call('default-browser-status').then(result => { if (!result) return; $('#default-browser-status').textContent = result.isDefault ? 'luna 已是 HTTP 和 HTTPS 链接的默认浏览器' : result.available ? '注册后请在 Windows 默认应用中选择 luna' : '请使用正式 Windows 成品设置默认浏览器'; $('#default-browser-register').disabled = !result.available; }); }
   } };

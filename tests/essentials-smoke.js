@@ -30,6 +30,7 @@ async function launch() {
   launchOptions = { executablePath: process.env.LUNA_EXECUTABLE || require('electron'), args: process.env.LUNA_EXECUTABLE ? args : [root, ...args], env, timeout: 30000 };
   application = await electron.launch(launchOptions); application.on('window', win => win.on('pageerror', error => errors.push(error.message)));
   page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message)); await page.waitForSelector('.tab.selected');
+  await command(page, 'update-settings', { searchSuggestions: false });
   await application.evaluate(() => { globalThis.__essentialsErrors = []; process.on('uncaughtException', error => globalThis.__essentialsErrors.push(error.stack)); });
 }
 async function run() {
@@ -53,9 +54,10 @@ async function run() {
   await command(page, 'bookmark'); await command(page, 'new-tab', base + '/third'); await wait(async () => !(await active(page)).loading, 'third'); const third = await active(page);
   await page.locator('#address').fill('second'); await wait(async () => (await state(page)).popover === 'address', 'address suggestions');
   let popup = await popupPage(application, 'address'); await popup.waitForSelector('.address-candidate'); assert.equal(await page.locator('#address').evaluate(node => node === document.activeElement), true);
-  await page.locator('#address').press('ArrowDown'); await wait(async () => (await state(page)).addressSuggestions.selected === 0, 'keyboard highlight'); await page.locator('#address').press('Enter');
+  const candidateIndex = (await state(page)).addressSuggestions.items.findIndex(item => item.tabId === first.id);
+  for (let index = 0; index <= candidateIndex; index++) { await page.locator('#address').press('ArrowDown'); await wait(async () => (await state(page)).addressSuggestions.selected === index, 'keyboard highlight'); } await page.locator('#address').press('Enter');
   await wait(async () => (await state(page)).activeId === first.id, 'candidate switches existing tab');
-  await page.locator('#address').fill('third'); await wait(async () => (await state(page)).popover === 'address', 'mouse suggestions'); popup = await popupPage(application, 'address'); await popup.locator('.address-candidate').first().click();
+  await page.locator('#address').fill('third'); await wait(async () => (await state(page)).popover === 'address', 'mouse suggestions'); popup = await popupPage(application, 'address'); await popup.locator('.address-candidate[data-type="tab"]').first().click();
   await wait(async () => (await state(page)).activeId === third.id, 'mouse candidate'); checks.push('address candidates keep input focus; keyboard and real popup mouse selection switch existing tabs'); console.log('PASS address');
   await page.locator('.tab[data-id="' + third.id + '"]').click({ button: 'right' }); await page.waitForSelector('#tab-group-dialog[open]'); dialog = await dialogPage(page, '#tab-group-dialog[open]'); await dialog.getByRole('button', { name: '固定标签页', exact: true }).click();
   await wait(async () => (await state(page)).tabs[0].id === third.id && (await state(page)).tabs[0].pinned, 'pin order');

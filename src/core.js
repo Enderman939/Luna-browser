@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   showShortcuts: true, startup: 'restore', homePage: '', downloadPath: '', askDownload: true,
   parallelDownloads: true, downloadThreads: 8,
   savePasswords: true, autofillPasswords: true,
+  searchSuggestions: true,
   appearance: DEFAULT_APPEARANCE,
 });
 
@@ -23,7 +24,7 @@ function sanitizeSettings(value = {}) {
   if (Object.hasOwn(SEARCH_ENGINES, value.searchEngine)) settings.searchEngine = value.searchEngine;
   if (['light', 'dark', 'system'].includes(value.theme)) settings.theme = value.theme;
   if (['restore', 'newtab'].includes(value.startup)) settings.startup = value.startup;
-  for (const key of ['showBookmarks', 'showHome', 'showShortcuts', 'askDownload', 'parallelDownloads', 'savePasswords', 'autofillPasswords']) {
+  for (const key of ['showBookmarks', 'showHome', 'showShortcuts', 'askDownload', 'parallelDownloads', 'savePasswords', 'autofillPasswords', 'searchSuggestions']) {
     if (typeof value[key] === 'boolean') settings[key] = value[key];
   }
   if ([1, 2, 4, 8, 16].includes(value.downloadThreads)) settings.downloadThreads = value.downloadThreads;
@@ -81,7 +82,8 @@ function sanitizeData(data = {}) {
   const bookmarks = sanitizeBookmarks(data.bookmarks, data.bookmarkFolders);
   return {
     ...bookmarks,
-    history: cleanList(data.history).slice(0, 500),
+    history: cleanList(data.history).slice(0, 10000),
+    importWelcomeSeen: data.importWelcomeSeen === true,
     session: Array.isArray(data.session) ? data.session.filter(isSessionUrl).slice(0, 30) : [],
     sessionWindows: Array.isArray(data.sessionWindows) ? data.sessionWindows.slice(0, 12).map(value => require('./workspace-model').sanitizeLayout(value)).filter(Boolean) : [],
     sessionActive: Number.isInteger(data.sessionActive) ? Math.max(0, Math.min(29, data.sessionActive)) : 0,

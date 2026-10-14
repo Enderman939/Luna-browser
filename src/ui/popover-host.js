@@ -7,10 +7,14 @@
   let initialized = false, closing = false;
   function fit() {
     const node = document.querySelector(targets[kind]); if (!node || closing) return;
-    window.browser.command('popover-size', Math.ceil(node.offsetHeight + 24)).catch(() => {});
+    const list = kind === 'address' && node.querySelector('.address-candidate-list');
+    // Async suggestions can grow beyond the current native window. Measure the
+    // list's intrinsic content, otherwise its viewport cap prevents any growth.
+    const height = list ? node.offsetHeight - list.offsetHeight + Math.min(480, list.scrollHeight) : node.offsetHeight;
+    window.browser.command('popover-size', Math.ceil(height + 24)).catch(() => {});
   }
   window.popoverHost = { kind, close: () => window.browser.command('popover-close').catch(() => {}), initialized: () => {
-    if (initialized) return; initialized = true;
+    if (initialized) { if (kind === 'address') requestAnimationFrame(fit); return; } initialized = true;
     const node = document.querySelector(targets[kind]);
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) node.animate([{ opacity: 0, transform: 'translateY(-6px) scale(.975)' }, { opacity: 1, transform: 'translateY(0) scale(1)' }], { duration: 170, easing: 'cubic-bezier(.2,.85,.25,1)' });
     new ResizeObserver(fit).observe(node); requestAnimationFrame(fit);

@@ -17,7 +17,7 @@
           row.progress = el('progress', 'download-overall'); row.root.append(row.progress);
           row.error = el('p', 'download-error'); row.root.append(row.error);
           const actions = el('div', 'download-actions');
-          for (const [action, title] of [['pause', '暂停'], ['resume', '继续'], ['cancel', '取消'], ['open', '打开文件'], ['reveal', '所在文件夹']]) {
+           for (const [action, title] of [['pause', '暂停'], ['resume', '继续'], ['cancel', '取消'], ['open', '打开文件'], ['reveal', '所在文件夹'], ['remove', '移除记录'], ['delete-file', '删除文件']]) {
             const button = el('button', '', title); button.dataset.action = action;
             button.onclick = () => command('download-action', { id: entry.id, action: button.dataset.action }); row.buttons[action] = button; actions.append(button);
           }
@@ -55,18 +55,21 @@
         row.buttons.resume.textContent = entry.status === 'interrupted' ? '重试' : entry.resumable ? '继续' : '重新开始';
         row.buttons.resume.dataset.action = !entry.managed && entry.status === 'interrupted' ? 'retry' : 'resume';
         row.buttons.cancel.hidden = ['completed', 'cancelled', 'merging'].includes(entry.status);
-        row.buttons.open.hidden = row.buttons.reveal.hidden = entry.status !== 'completed';
+         row.buttons.open.hidden = row.buttons.reveal.hidden = entry.status !== 'completed';
+         row.buttons['delete-file'].hidden = entry.status !== 'completed';
+         row.buttons.remove.disabled = entry.status === 'merging';
+         if (entry.historical) { row.buttons.pause.hidden = row.buttons.resume.hidden = row.buttons.cancel.hidden = true; row.completion.disabled = true; }
         row.url.textContent = entry.url; row.url.title = entry.url;
         row.stats.status.textContent = statuses[entry.status] || entry.status;
         row.stats.total.textContent = entry.total ? bytes(entry.total) : '未知';
         row.stats.received.textContent = bytes(entry.received) + (percent ? ' (' + percent + '%)' : '');
         row.stats.speed.textContent = bytes(entry.speed || 0) + '/s'; row.stats.eta.textContent = duration(entry.eta);
         row.stats.resume.textContent = entry.status === 'completed' ? '已完成' : entry.resumable ? '支持' : entry.mode === 'checking' ? '正在检查' : entry.mode === 'native' ? '由 Chromium 管理' : '不支持';
-        row.stats.mode.textContent = entry.mode === 'range' ? entry.threads.length + ' 个分段线程' : entry.mode === 'native' ? 'Chromium 单连接' : entry.mode === 'single' ? '单连接（服务器不支持分段）' : '正在检查';
+         row.stats.mode.textContent = entry.historical ? '历史记录' + (entry.source ? ' · 来自 ' + entry.source : '') : entry.mode === 'range' ? entry.threads.length + ' 个分段线程' : entry.mode === 'native' ? 'Chromium 单连接' : entry.mode === 'single' ? '单连接（服务器不支持分段）' : '正在检查';
         row.speedLabel.hidden = !entry.managed;
         if (document.activeElement !== row.speed) row.speed.value = entry.speedLimit || '';
         if (document.activeElement !== row.completion) row.completion.value = entry.completion || 'none';
-        row.completion.disabled = ['completed', 'cancelled'].includes(entry.status);
+         row.completion.disabled = entry.historical || ['completed', 'cancelled'].includes(entry.status);
         const partIds = new Set((entry.threads || []).map(part => part.id));
         for (const [id, part] of row.parts) if (!partIds.has(id)) { part.tr.remove(); part.progress.remove(); row.parts.delete(id); }
         for (const part of entry.threads || []) {

@@ -54,6 +54,13 @@ test('segments cover a file exactly, and malformed ranges are rejected', () => {
   assert.deepEqual(contentRange('bytes 0-0/123'), { start: 0, end: 0, total: 123 });
   for (const input of ['bytes 0-123/123', 'bytes 10-5/100', 'bytes 0-0/*', 'bad']) assert.equal(contentRange(input), null);
 });
+test('removing a live transfer cancels its requests, drops checkpoints and leaves no file or resurrected job', async t => {
+  const f = await fixture(t), manager = f.manager(), file = path.join(f.directory, 'removed.bin');
+  const id = manager.create({ url: f.base + '/ranged', file, threads: 2 });
+  await waitFor(() => manager.jobs.get(id).received > 32768); await manager.remove(id);
+  assert.equal(manager.jobs.has(id), false); assert.equal(fs.existsSync(file), false); assert.equal(fs.existsSync(path.join(f.directory, 'download-parts', id)), false);
+  assert.equal(JSON.parse(fs.readFileSync(manager.file)).some(entry => entry.id === id), false);
+});
 test('parallel downloads preserve every byte with multiple real connections', async t => {
   const f = await fixture(t), manager = f.manager(), file = path.join(f.directory, 'output.bin');
   const id = manager.create({ url: f.base + '/ranged', file, threads: 8 });
