@@ -2,12 +2,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { bookmarkURL } = require('./bookmarks');
+const { localFile, localName } = require('./local-files');
 function downloadRecord(value) {
   const url = bookmarkURL(value?.url); if (!url) return null;
-  const file = typeof value.file === 'string' && /^[a-z]:[\\/]/i.test(value.file) && !/[\x00-\x1f]/.test(value.file) && value.file.length <= 4096 ? path.win32.normalize(value.file) : '';
+  const file = localFile(value.file);
   const createdAt = Number(value.createdAt); if (!Number.isFinite(createdAt) || createdAt <= 0 || createdAt > Date.now() + 86400000) return null;
-  const fingerprint = createHash('sha256').update([url, file.toLowerCase(), createdAt].join('\n')).digest('hex');
-  return { id: /^native-[\d-]+$/.test(value.id || '') ? value.id : 'past-' + fingerprint.slice(0, 24), fingerprint, name: String(value.name || path.win32.basename(file) || '下载文件').slice(0, 300), url, file,
+  const fingerprint = createHash('sha256').update([url, process.platform === 'win32' ? file.toLowerCase() : file, createdAt].join('\n')).digest('hex');
+  return { id: /^native-[\d-]+$/.test(value.id || '') ? value.id : 'past-' + fingerprint.slice(0, 24), fingerprint, name: String(value.name || localName(file) || '下载文件').slice(0, 300), url, file,
     total: Math.max(0, Number(value.total) || 0), received: Math.max(0, Number(value.received) || 0), createdAt,
     status: ['completed', 'cancelled', 'interrupted'].includes(value.status) ? value.status : 'interrupted', source: String(value.source || '').slice(0, 40), historical: true, managed: false, mode: 'history', threads: [], resumable: false, speed: 0, eta: null, icon: '', error: '', completion: 'none' };
 }
@@ -26,7 +27,7 @@ class DownloadHistory {
   remove(id) { this.records.delete(id); this.save(); }
 }
 async function fileIdentity(file) {
-  if (typeof file !== 'string' || !/^[a-z]:[\\/]/i.test(file) || file.includes('\0')) throw new Error('此记录没有可删除的本地文件');
+  if (!localFile(file)) throw new Error('此记录没有可删除的本地文件');
   const stat = await fs.promises.lstat(file); if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('只能删除普通下载文件，不能删除目录或文件链接');
   const real = await fs.promises.realpath(file);
   return { real, dev: stat.dev, ino: stat.ino, size: stat.size, mtime: stat.mtimeMs };

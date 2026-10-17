@@ -142,6 +142,6 @@
     $('#address').setAttribute('aria-expanded', String(state.popover === 'address'));
     if (state.popover === 'address' && state.addressSuggestions.selected >= 0) $('#address').setAttribute('aria-activedescendant', 'address-candidate-' + state.addressSuggestions.selected); else $('#address').removeAttribute('aria-activedescendant');
     $('#address-symbol').disabled = !state.siteInfo; if ($('#site-info-dialog').open) renderSite(); if ($('#bookmark-manager-dialog').open) renderManager();
-    if (!defaultChecked) { defaultChecked = true; call('default-browser-status').then(result => { if (!result) return; $('#default-browser-status').textContent = result.isDefault ? 'luna 已是 HTTP 和 HTTPS 链接的默认浏览器' : result.available ? '注册后请在 Windows 默认应用中选择 luna' : '请使用正式 Windows 成品设置默认浏览器'; $('#default-browser-register').disabled = !result.available; }); }
+    if (!defaultChecked) { defaultChecked = true; call('default-browser-status').then(result => { if (!result) return; $('#default-browser-status').textContent = result.isDefault ? 'luna 已是 HTTP 和 HTTPS 链接的默认浏览器' : result.available ? result.platform === 'darwin' ? '在系统提示或 macOS 默认网页浏览器设置中选择 luna' : '注册后请在 Windows 默认应用中选择 luna' : '请使用正式成品设置默认浏览器'; $('#default-browser-register').disabled = !result.available; }); }
   } };
 })();

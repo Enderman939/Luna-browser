@@ -7,6 +7,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { compactPackage, diskSize } from './compact-package.mjs';
 import { measurePackage } from './package-size.mjs';
+import { packageIgnore, trimDependencies } from './package-common.mjs';
 const require = createRequire(import.meta.url);
 const { values } = parseArgs({ options: {
   out: { type: 'string' },
@@ -41,26 +42,6 @@ async function trimRuntime({ buildPath }) {
   }
 }
 
-async function trimDependencies({ buildPath }) {
-  const modules = path.join(buildPath, 'node_modules');
-  await fs.rm(path.join(modules, '@types'), { recursive: true, force: true });
-  await fs.rm(path.join(modules, '.package-lock.json'), { force: true });
-  // pngjs' Node entry uses lib/. Its coverage report and prebundled browser
-  // distribution are not used by qrcode's Node PNG renderer.
-  for (const file of ['pngjs/coverage', 'pngjs/browser.js']) {
-    await fs.rm(path.join(modules, file), { recursive: true, force: true });
-  }
-  async function walk(directory) {
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      const file = path.join(directory, entry.name);
-      if (entry.isDirectory()) await walk(file);
-      else if (/\.(?:map|d\.ts)$/.test(entry.name) || /^(?:readme|changelog|history)(?:\.[\w-]+)?$/i.test(entry.name) || /^\.(?:eslint|prettier)/.test(entry.name)) {
-        await fs.rm(file);
-      }
-    }
-  }
-  await walk(modules);
-}
 // The pinned Electron npm package ships its release checksums. Supplying them
 // verifies the cached runtime without fetching a fresh checksum file on every build.
 const checksums = require('electron/checksums.json');
@@ -71,8 +52,7 @@ const output = await packager({
   extraResource: ['src/native/luna-ie-host.exe', 'src/native/luna-private-cleanup.exe', 'src/native/luna-browser-import.exe'],
   afterExtract: [trimRuntime],
   afterPrune: [trimDependencies],
-  ignore: [/^\/tests/, /^\/scripts/, /^\/docs/, /^\/artifacts/, /^\/dist/, /^\/package-lock\.json$/, /^\/README\.md$/, /^\/\.gitignore$/, /^\/start\.cmd$/, /^\/src\/native(?:\/|$)/,
-    /^\/src\/ui\/assets\/[^/]+\.aip$/i, /^\/src\/ui\/assets\/Luna-(?:SetupFiles|cache)(?:\/|$)/i],
+  ignore: packageIgnore,
 });
 console.log('Built:', output.join(', '));
 const reports = [];

@@ -1,8 +1,8 @@
 # luna 浏览器
 
-一个可直接运行的 Windows 桌面浏览器，使用 Electron / Chromium 加载真实网页。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
+一个使用 Electron / Chromium 加载真实网页的桌面浏览器，提供 Windows x64 和 macOS Apple Silicon（M 系列、arm64）版本。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前公开版本：**1.1.0**，使用 **Electron 44.7.2**。支持 Windows 10 及以上的 x64 系统。
+当前公开版本：**1.1.0**，使用 **Electron 44.7.2**。Windows 版支持 Windows 10 及以上的 x64 系统；Mac 版原生运行于 Apple Silicon。
 
 双击 `start.cmd` 运行 `dist/release/luna-win32-x64/luna.exe`。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
 
@@ -18,6 +18,10 @@
 ## 下载
 
 在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.1.0-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+
+**M 系列 Mac**：下载 `luna-1.1.0-darwin-arm64.dmg`，打开后把 `luna.app` 拖入 **Applications／应用程序**，再从应用程序启动。也可下载对应 ZIP，解压后移动整个 `luna.app`。两种包均不需要 Node.js 或 Rosetta。
+
+Mac 包采用 ad-hoc 本地签名，尚未通过 Apple Developer ID 签名和公证。首次打开若被 macOS 拦截，请在 **系统设置 → 隐私与安全性 → 仍要打开** 中确认。详细平台差异、构建与验证见 [Apple Silicon 版说明](docs/macos-arm64.md)。Mac 的独立校验文件为 `SHA256SUMS-macos-arm64.txt`。
 
 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.1.0-win32-x64.zip -Algorithm SHA256` 校验下载文件。
 
@@ -287,6 +291,7 @@ npm run build        # 按当前版本号输出到 dist/release 或 dist/beta，
 npm run build:compact # 同上，并使用 Windows LZX 减少磁盘占用
 npm run build:beta   # 构建 Beta；package.json 必须使用预发布版本号
 npm run build:release # 构建正式版；package.json 必须使用稳定版本号
+npm run build:mac    # 在 macOS arm64 生成 .app、ZIP、DMG 和独立校验文件
 npm run package:size # 分析 Beta 成品逻辑体积；也可加 -- dist/release/luna-win32-x64
 ```
 
@@ -324,7 +329,7 @@ src/ui/           中文界面、样式与交互
 tests/            单元与实际浏览流程测试
 ```
 
-浏览数据保存在 `%APPDATA%/luna`。首次升级时会复制旧版 `%APPDATA%/Luma` 的数据，保留原目录。分段下载记录可跨会话恢复；已结束的 Chromium 原生下载和导入的下载历史也会保存到下次启动。
+Windows 浏览数据保存在 `%APPDATA%/luna`，macOS 位于 `~/Library/Application Support/luna`。首次升级时会复制同平台旧版 `Luma` 的数据，保留原目录。分段下载记录可跨会话恢复；已结束的 Chromium 原生下载和导入的下载历史也会保存到下次启动。密码库由本机系统账号加密，Windows 与 Mac 密码迁移请使用用户确认的 CSV 导入。
 
 当前版本支持 HTTP / HTTPS 网页与默认浏览器注册，支持摄像头、麦克风、定位、通知和读取剪贴板的网站授权。跨设备同步、联系人／地址自动填充、浏览器自身自动更新及在线恶意网址信誉服务尚未实现。受 DRM 或特定浏览器要求限制的网站可能无法完整使用。
 

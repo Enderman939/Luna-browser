@@ -16,7 +16,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js tests/import-search.test.js",
+    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js tests/import-search.test.js tests/platform.test.js",
     "pretest:essentials": "npm run prepare:ui",
     "test:essentials": "node tests/essentials-smoke.js",
     "pretest:modal-background": "npm run prepare:ui && npm run build:ie",
@@ -64,7 +64,9 @@
     "build:preview": "npm run build:beta",
     "dist:organize": "node scripts/organize-dist.mjs --apply",
     "package:size": "node scripts/package-size.mjs",
-    "package:compact": "node scripts/compact-package.mjs"
+    "package:compact": "node scripts/compact-package.mjs",
+    "build:mac": "npm run prepare:ui && node scripts/package-macos.mjs",
+    "test:mac": "node tests/macos-smoke.js"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",

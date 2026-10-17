@@ -7,6 +7,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { readJSON, idFor } = require('./browser-import');
 const { bookmarkURL, sanitizeBookmarks } = require('./bookmarks');
 const { credential } = require('./password-vault');
+const { localFile, localName } = require('./local-files');
 const chromiumTime = value => { const milliseconds = Number(value) / 1000 - 11644473600000; return milliseconds > 0 && milliseconds <= Date.now() + 86400000 ? Math.floor(milliseconds) : Date.now(); };
 function database(file, reader) {
   if (fs.statSync(file).size > 512 * 1024 * 1024) throw new Error('数据库过大');
@@ -31,7 +32,6 @@ function chromiumBookmarks(value, namespace) {
   for (const [key, root] of Object.entries(value.roots || {})) walk(root, null, 0, key);
   return { ...sanitizeBookmarks(bookmarks, bookmarkFolders), skipped };
 }
-function localFile(value) { return typeof value === 'string' && /^[a-z]:[\\/]/i.test(value) && !/[\x00-\x1f]/.test(value) ? path.win32.normalize(value).slice(0, 4096) : ''; }
 function chromiumDownloads(db, source) {
   const columns = new Set(db.prepare('PRAGMA table_info(downloads)').all().map(column => column.name));
   const target = columns.has('target_path') ? 'target_path' : columns.has('full_path') ? 'full_path' : null;
@@ -40,7 +40,7 @@ function chromiumDownloads(db, source) {
   const hasChain = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='downloads_url_chains'").get();
   return rows.map(row => {
     const url = hasChain ? db.prepare('SELECT url FROM downloads_url_chains WHERE id=? ORDER BY chain_index DESC LIMIT 1').get(row.id)?.url : '';
-    return { file: localFile(row.file), url: bookmarkURL(url), name: path.win32.basename(row.file || '') || '下载文件', status: Number(row.state) === 1 ? 'completed' : Number(row.state) === 2 ? 'cancelled' : 'interrupted', total: Math.max(0, Number(row.total_bytes) || 0), received: Math.max(0, Number(row.received_bytes) || 0), createdAt: chromiumTime(row.start_time), source };
+    return { file: localFile(row.file), url: bookmarkURL(url), name: localName(row.file) || '下载文件', status: Number(row.state) === 1 ? 'completed' : Number(row.state) === 2 ? 'cancelled' : 'interrupted', total: Math.max(0, Number(row.total_bytes) || 0), received: Math.max(0, Number(row.received_bytes) || 0), createdAt: chromiumTime(row.start_time), source };
   }).filter(row => row.url);
 }
 function unprotect(values, helper) {
@@ -56,6 +56,10 @@ function unprotect(values, helper) {
   });
 }
 async function chromiumPasswords(profile, helper) {
+  if (process.platform !== 'win32') {
+    const count = database(path.join(profile.directory, 'Login Data'), db => db.prepare('SELECT COUNT(*) AS count FROM logins WHERE blacklisted_by_user=0').get().count);
+    return { entries: [], skipped: 0, protectedCount: Math.min(5000, Math.max(0, Number(count) || 0)) };
+  }
   const rows = database(path.join(profile.directory, 'Login Data'), db => db.prepare('SELECT origin_url, username_value, password_value, blacklisted_by_user FROM logins LIMIT 5000').all());
   const entries = []; let skipped = 0, protectedCount = 0, key;
   const aesRows = rows.filter(row => ['v10', 'v11'].includes(Buffer.from(row.password_value || []).subarray(0, 3).toString()));
@@ -96,7 +100,7 @@ function firefoxData(profile, types) {
       const rows = db.prepare("SELECT p.url, p.title, p.last_visit_date / 1000 AS time, a.content, n.name FROM moz_annos a JOIN moz_anno_attributes n ON n.id=a.anno_attribute_id JOIN moz_places p ON p.id=a.place_id WHERE n.name IN ('downloads/destinationFileURI','downloads/metaData') LIMIT 4000").all();
       const grouped = new Map();
       for (const row of rows) { const value = grouped.get(row.url) || { url: row.url, name: row.title, createdAt: row.time, source: profile.browser }; if (row.name.endsWith('destinationFileURI')) { try { value.file = localFile(require('node:url').fileURLToPath(row.content)); } catch {} } else { try { const meta = JSON.parse(row.content); value.status = meta.state === 1 ? 'completed' : 'interrupted'; value.total = value.received = Number(meta.fileSize) || 0; } catch {} } grouped.set(row.url, value); }
-      result.downloads = [...grouped.values()].filter(row => bookmarkURL(row.url)).map(row => ({ ...row, name: path.win32.basename(row.file || '') || row.name || '下载文件', status: row.status || 'interrupted' }));
+      result.downloads = [...grouped.values()].filter(row => bookmarkURL(row.url)).map(row => ({ ...row, name: localName(row.file) || row.name || '下载文件', status: row.status || 'interrupted' }));
     }
     return result;
   });
@@ -104,7 +108,7 @@ function firefoxData(profile, types) {
 function firefoxDownloads(profile) {
   const value = readJSON(path.join(profile.directory, 'downloads.json'));
   return (Array.isArray(value.list) ? value.list : []).slice(0, 1000).map(entry => ({
-    url: bookmarkURL(entry.source?.url), file: localFile(entry.target?.path), name: path.win32.basename(entry.target?.path || '') || '下载文件',
+    url: bookmarkURL(entry.source?.url), file: localFile(entry.target?.path), name: localName(entry.target?.path) || '下载文件',
     createdAt: typeof entry.startTime === 'number' ? entry.startTime : Date.parse(entry.startTime),
     total: Math.max(0, Number(entry.totalBytes) || 0), received: Math.max(0, Number(entry.currentBytes ?? entry.totalBytes) || 0),
     status: entry.succeeded ? 'completed' : entry.canceled ? 'cancelled' : 'interrupted', source: 'Firefox',
@@ -126,7 +130,7 @@ async function readProfile(profile, types, helper) {
       data.outcomes[type] = true;
     } catch { data.warnings.push({ type, message: '读取失败：请关闭来源浏览器后重试；该配置也可能使用不兼容的数据格式' }); }
   }
-  if (data.passwords?.protectedCount && profile.kind !== 'firefox') data.warnings.push({ type: 'passwords', message: data.passwords.protectedCount + ' 条密码受应用绑定或当前账号加密保护，请在来源浏览器导出 CSV 后导入' });
+  if (data.passwords?.protectedCount && profile.kind !== 'firefox') data.warnings.push({ type: 'passwords', message: process.platform === 'darwin' ? data.passwords.protectedCount + ' 条密码由来源浏览器的钥匙串保护，请在来源浏览器导出 CSV 后导入' : data.passwords.protectedCount + ' 条密码受应用绑定或当前账号加密保护，请在来源浏览器导出 CSV 后导入' });
   return data;
 }
 if (parentPort) readProfile(workerData.profile, workerData.types, workerData.helper).then(data => parentPort.postMessage({ ok: true, data }), () => parentPort.postMessage({ ok: false }));

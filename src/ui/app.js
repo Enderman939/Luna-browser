@@ -195,7 +195,7 @@ function render(newState) {
   $('#back').disabled = !tab.canBack || internal;
   $('#forward').disabled = !tab.canForward || internal;
   setIcon($('#reload'), tab.loading ? 'close' : 'reload');
-  $('#reload').title = tab.loading ? '停止加载' : '刷新 (Ctrl+R)';
+  $('#reload').title = tab.loading ? '停止加载' : window.lunaShortcut('刷新 (Ctrl+R)');
   $('#bookmark').disabled = internal || !!tab.error;
   $('#reload').disabled = internal;
   $('#bookmark').classList.toggle('is-saved', state.bookmarks.some(entry => entry.url === tab.url));

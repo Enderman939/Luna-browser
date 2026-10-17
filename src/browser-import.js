@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { Worker } = require('node:worker_threads');
 
@@ -15,7 +16,13 @@ function readJSON(file, maximum = 8 * 1024 * 1024) {
     return JSON.parse(bytes.subarray(0, size).toString('utf8').replace(/^\uFEFF/, ''));
   } finally { fs.closeSync(handle); }
 }
-function browserRoots(env = process.env) {
+function browserRoots(env = process.env, platform = process.platform, home = os.homedir()) {
+  if (platform === 'darwin') {
+    const support = path.join(home, 'Library', 'Application Support');
+    return [['Edge', 'Microsoft Edge'], ['Chrome', 'Google/Chrome'], ['Brave', 'BraveSoftware/Brave-Browser'], ['Vivaldi', 'Vivaldi'], ['Firefox', 'Firefox/Profiles']]
+      .map(([browser, relative]) => ({ browser, root: path.join(support, relative), kind: browser === 'Firefox' ? 'firefox' : 'chromium' }));
+  }
+  if (platform !== 'win32') return [];
   const local = env.LOCALAPPDATA, roaming = env.APPDATA;
   return [
     ['Edge', local, 'Microsoft/Edge/User Data'], ['Chrome', local, 'Google/Chrome/User Data'],
@@ -46,7 +53,7 @@ class BrowserImporter {
   constructor({ roots, helper }) { this.roots = roots; this.helper = helper; this.profiles = new Map(); this.busy = false; }
   list() {
     const profiles = discoverProfiles(this.roots); this.profiles = new Map(profiles.map(profile => [profile.id, profile]));
-    return profiles.map(({ id, browser, name, available, kind }) => ({ id, browser, name, available, passwordNote: kind === 'firefox' ? 'Firefox 密码请导出 CSV 后导入' : '支持本账号可解密的密码；应用绑定密码需 CSV' }));
+    return profiles.map(({ id, browser, name, available, kind }) => ({ id, browser, name, available, passwordNote: kind === 'firefox' ? 'Firefox 密码请导出 CSV 后导入' : process.platform === 'darwin' ? 'macOS 密码请在来源浏览器导出 CSV 后导入' : '支持本账号可解密的密码；应用绑定密码需 CSV' }));
   }
   async read(id, types) {
     const profile = this.profiles.get(id);

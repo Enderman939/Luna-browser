@@ -44,7 +44,7 @@ class PasswordVault {
       });
       this.data.blocked = [...new Set(data.blocked.map(credentialOrigin))];
       if (this.data.blocked.includes(null)) throw new Error();
-    } catch { this.data = { entries: [], blocked: [] }; this.error = '密码库无法解密或已损坏。原文件已保留，请使用原 Windows 账号或恢复备份。'; }
+    } catch { this.data = { entries: [], blocked: [] }; this.error = '密码库无法解密或已损坏。原文件已保留，请使用原设备的系统账号或恢复备份。'; }
   }
   available() { return this.encryption.isEncryptionAvailable() && (!this.encryption.getSelectedStorageBackend || this.encryption.getSelectedStorageBackend() !== 'basic_text'); }
   check() { if (this.error) throw new Error(this.error); if (!this.available()) throw new Error('系统加密暂不可用，密码保存与读取已暂停。'); }

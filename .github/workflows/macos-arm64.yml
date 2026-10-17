@@ -1,0 +1,45 @@
+name: Build macOS arm64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Confirm native Apple Silicon runner
+        run: node -e "if(process.platform!=='darwin'||process.arch!=='arm64')process.exit(1)"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:mac
+      - name: Test packaged application
+        env:
+          LUNA_EXECUTABLE: ${{ github.workspace }}/dist/release/luna-darwin-arm64/luna.app/Contents/MacOS/luna
+        run: |
+          node tests/macos-smoke.js
+          node tests/import-search-smoke.js
+          node tests/features-smoke.js
+          node tests/private-security-smoke.js
+          node scripts/verify-macos-package.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luna-macos-arm64
+          path: |
+            dist/release/luna-*-darwin-arm64.zip
+            dist/release/luna-*-darwin-arm64.dmg
+            dist/release/SHA256SUMS-macos-arm64.txt
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-validation
+          path: artifacts/

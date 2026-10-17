@@ -12,7 +12,7 @@ const state = (target = page) => command('state', undefined, target);
 async function wait(fn, name, timeout = 15000) { const start = Date.now(); while (Date.now() - start < timeout) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 40)); } throw new Error('Timed out: ' + name); }
 async function confirm(kind, accepted = true, parent = page) { const layer = await dialogPage(parent, '#confirmation-dialog[open][data-kind="' + kind + '"]'); await layer.locator(accepted ? '#confirmation-accept' : '#confirmation-cancel').click(); await wait(async () => !(await state(parent)).prompt, 'confirmation closed'); }
 async function run() {
-  fs.mkdirSync(artifacts, { recursive: true }); const fixture = createImportFixture(directory, true);
+  fs.mkdirSync(artifacts, { recursive: true }); const windows = process.platform === 'win32', fixture = createImportFixture(directory, windows);
   const env = { ...process.env, LUNA_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE;
   application = await electron.launch({ executablePath: process.env.LUNA_EXECUTABLE || require('electron'), args: process.env.LUNA_EXECUTABLE ? ['--no-proxy-server'] : [root, '--no-proxy-server'], env });
   application.on('window', window => window.on('pageerror', error => errors.push(error.message))); page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message)); await page.waitForSelector('.tab.selected');
@@ -33,16 +33,19 @@ async function run() {
   assert.match(await layer.locator('#browser-import-profile').textContent(), /Edge.*Synthetic Edge/);
   await layer.locator('#browser-import-submit').click(); await confirm('browser-import');
   await layer.waitForSelector('#browser-import-result:not([hidden])'); assert.match(await layer.locator('#browser-import-result').textContent(), /650/);
-  assert.match(await layer.locator('#browser-import-result').textContent(), /1 条密码受应用绑定/);
+  if (windows) assert.match(await layer.locator('#browser-import-result').textContent(), /1 条密码受应用绑定/);
+  else assert.match(await layer.locator('#browser-import-profile-note').textContent(), /macOS.*CSV/);
   assert.equal((await state()).bookmarks.length, 1); assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).history.length, 650); assert.equal((await state()).downloads.length, 1);
-  const passwords = (await command('password-list')).entries; assert.equal(passwords.length, 2);
+  const passwords = (await command('password-list')).entries; assert.equal(passwords.length, windows ? 2 : 0);
+  if (windows) {
   const detail = command('password-detail', passwords.find(entry => entry.username === 'aes').id); await confirm('password-reveal'); assert.equal((await detail).password, 'Synthetic-AES!');
   const legacy = command('password-detail', passwords.find(entry => entry.username === 'legacy').id); await confirm('password-reveal'); assert.equal((await legacy).password, 'Synthetic-legacy!');
   const disk = fs.readFileSync(path.join(profile, 'password-vault.json'), 'utf8'); assert.equal(disk.includes('Synthetic-AES!'), false); assert.equal(disk.includes('Synthetic-legacy!'), false);
+  }
   await layer.locator('#browser-import-submit').click(); await confirm('browser-import'); await layer.waitForSelector('#browser-import-result:not([hidden])'); await wait(async () => await layer.locator('#browser-import-submit').isEnabled(), 'duplicate import finished');
-  assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).history.length, 650); assert.equal((await command('password-list')).entries.length, 2);
+  assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).history.length, 650); assert.equal((await command('password-list')).entries.length, windows ? 2 : 0);
   await layer.screenshot({ path: path.join(artifacts, 'browser-import-preview.png') }); await layer.locator('#browser-import-close').click(); await wait(() => dialogClosed(layer), 'import closed');
-  checks.push('actual detected-profile UI; read-only bookmark hierarchy, 650 history URLs and completed download metadata; DPAPI and AES-GCM passwords re-encrypted; application-bound password explicitly reported; duplicate import preserves data');
+  checks.push('actual detected-profile UI; read-only bookmark hierarchy, 650 history URLs and completed download metadata; ' + (windows ? 'DPAPI and AES-GCM passwords re-encrypted; application-bound password explicitly reported' : 'macOS password CSV path explained') + '; duplicate import preserves data');
   console.log('PASS browser import and Windows password encryption');
   await page.locator('#address').fill('electron'); await wait(async () => (await state()).addressSuggestions.phrases.length === 2, 'online suggestions');
   let popup = await popupPage(application, 'address'); await popup.waitForSelector('.search-candidate');

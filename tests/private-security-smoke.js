@@ -145,13 +145,15 @@ async function run() {
   page = await application.firstWindow(); await page.waitForSelector('.tab.selected');
   assert.equal(fs.readdirSync(path.join(profile, 'private-sessions')).length, 0, 'startup removes previous process session directories');
   await closeApp(application, page, false); application = null;
-  const probeRoot = path.join(profile, 'watcher-probe', 'private-sessions');
+   if (process.platform === 'win32') {
+   const probeRoot = path.join(profile, 'watcher-probe', 'private-sessions');
   await new Promise((resolve, reject) => {
     const probe = spawn(process.execPath, [path.join(root, 'tests/private-cleanup-probe.js'), probeRoot], { stdio: 'ignore' });
     probe.on('error', reject); probe.on('exit', code => code === 0 ? resolve() : reject(new Error('Cleanup watcher probe failed: ' + code)));
   });
   await wait(() => !fs.readdirSync(probeRoot).length, 'Windows cleanup helper removes its owner directories after process exit');
-  checks.push('crash residue and previous browser temporary directories cleaned at startup; independent Windows process-exit cleanup watcher');
+   checks.push('crash residue and previous browser temporary directories cleaned at startup; independent Windows process-exit cleanup watcher');
+   } else checks.push('crash residue and private browser directories cleaned; fresh private sessions reset extension data');
   fs.writeFileSync(path.join(root, 'artifacts/private-security-result.json'), JSON.stringify({ passed: true, version, checks, testedAt: new Date().toISOString() }, null, 2));
   assert.deepEqual(errors, []); console.log('PASS: ' + checks.join('; '));
 }

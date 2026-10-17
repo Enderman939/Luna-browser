@@ -85,6 +85,7 @@
       $('#menu-ie-label').textContent = tab?.compatibility?.enabled ? '退出 IE 兼容模式' : '使用 IE 兼容模式重新加载';
       const reloadable = !!tab && /^https?:\/\//.test(tab.url);
       $('#menu-ie-mode').disabled = !reloadable || !tab?.compatibility?.available;
+      $('#menu-ie-mode').hidden = state.platform === 'darwin';
       $('#menu-ie-mode').title = tab?.compatibility?.reason || (!reloadable ? '请先打开网页' : '使用 IE 内核，并同步网站 Cookie 与切换时的网站存储');
       for(const action of ['devtools','screenshot-full']) {const button=menu.querySelector('[data-browser-action="'+action+'"]');if(tab?.compatibility?.enabled){button.disabled=true;button.title='此功能仅支持普通 Chromium 模式';}}
       if (window.popoverHost?.kind === 'browser') requestAnimationFrame(size);

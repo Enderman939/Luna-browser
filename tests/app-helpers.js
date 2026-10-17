@@ -20,6 +20,11 @@ async function closeApp(application, page, restore) {
       await layer.locator('#confirmation-accept').click();
     }
   } else await application.close().catch(() => {});
+  if (process.platform === 'darwin') {
+    const start = Date.now();
+    while (Date.now() - start < 15000 && await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length).catch(() => 0)) await new Promise(resolve => setTimeout(resolve, 40));
+    await application.evaluate(({ app }) => app.quit()).catch(() => {});
+  }
   await exited;
   await application.close().catch(() => {});
 }

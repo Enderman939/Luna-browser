@@ -4,6 +4,7 @@ const { injectBrowserAction } = require('electron-chrome-extensions/browser-acti
 injectBrowserAction();
 
 contextBridge.exposeInMainWorld('browser', {
+  platform: process.platform,
   command: (action, payload) => ipcRenderer.invoke('browser:command', action, payload),
   onState: callback => ipcRenderer.on('browser:state', (_, state) => callback(state)),
   onNotice: callback => ipcRenderer.on('browser:notice', (_, message) => callback(message)),

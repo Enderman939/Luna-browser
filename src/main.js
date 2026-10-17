@@ -53,6 +53,7 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const launchURLs = externalURLs(process.argv);
 const browsers = new Set(), services = new Map(), closedSessions = [];
+let quitRequest = null, quitting = false;
 let sharedStore, sharedAssets, sharedExtensions, sharedVault, sharedImporter, privateContext, extensionsReady, tabSequence = 0;
 const privateSessionsRoot = path.join(profile, 'private-sessions');
 const extensionPartitions = new Map();
@@ -71,9 +72,16 @@ function focusedBrowser() { const focused = BrowserWindow.getFocusedWindow(); re
 function broadcast() { for (const browser of browsers) { browser.updateAppearance(); browser.sendState(); } }
 app.on('second-instance', (_, argv) => {
   const urls = externalURLs(argv), browser = focusedBrowser();
-  if (!browser) { launchURLs.push(...urls); return; }
+  if (!browser) { launchURLs.push(...urls); if (app.isReady()) createBrowser({ urls: launchURLs.splice(0, 20) }).catch(console.error); return; }
   browser.window.show(); if (browser.window.isMinimized()) browser.window.restore(); browser.window.focus();
   for (const url of urls) browser.createTab(url);
+});
+app.on('open-url', (event, value) => {
+  event.preventDefault(); const urls = externalURLs([value]); if (!urls.length) return;
+  if (!app.isReady()) { launchURLs.push(...urls); return; }
+  const browser = focusedBrowser();
+  if (browser) { browser.window.show(); browser.window.focus(); for (const url of urls) browser.createTab(url); }
+  else { launchURLs.push(...urls); if (app.isReady()) createBrowser({ urls: launchURLs.splice(0, 20) }).catch(console.error); }
 });
 async function createBrowser(options = {}) {
 if (browsers.size >= 12) throw new Error('最多打开 12 个浏览器窗口');
@@ -135,7 +143,7 @@ function snapshot() {
     })),
     activeId, bookmarks: store.data.bookmarks, bookmarkFolders: store.data.bookmarkFolders, history: store.data.history,
     shortcuts: store.data.shortcuts, recentSites: recentSites(isPrivate ? [] : store.data.history, store.data.shortcuts),
-    private: isPrivate, windowId: window.id, groups: [...groups.values()], split,
+    private: isPrivate, platform: process.platform, windowId: window.id, groups: [...groups.values()], split,
     importWelcomeSeen: store.data.importWelcomeSeen,
     siteInfo: sitePermissions && isWebUrl(tabs.get(activeId)?.url) ? { tabId: activeId, origin: new URL(tabs.get(activeId).url).origin,
       secure: tabs.get(activeId).url.startsWith('https:') && !tabs.get(activeId).error, legacy: !!tabs.get(activeId).ie,
@@ -516,6 +524,7 @@ function handleShortcut(event, input) {
   let handled = true;
   const tab = tabs.get(activeId);
   if (input.alt && key === 'f4') { window.close(); event.preventDefault(); return; }
+  if (process.platform === 'darwin' && input.meta && key === ',') { openSettings(); event.preventDefault(); return; }
   if (ctrl && key === 'l') { window.focus(); window.webContents.focus(); window.webContents.send('browser:shortcut', 'address'); }
   else if (ctrl && key === 'n') { popovers.close(true); createBrowser({ private: input.shift || isPrivate }).catch(error => toast(error.message)); }
   else if (ctrl && input.shift && key === 'delete') showClearData();
@@ -524,7 +533,7 @@ function handleShortcut(event, input) {
   else if (ctrl && key === 'w') { if (tabs.size === 1) window.close(); else closeTab(activeId); }
   else if ((ctrl && key === 'r') || key === 'f5') reloadTab(tab);
   else if (ctrl && key === 'd') bookmark(tab);
-  else if (ctrl && key === 'h') window.webContents.send('browser:shortcut', 'history');
+  else if (ctrl && key === (process.platform === 'darwin' ? 'y' : 'h')) window.webContents.send('browser:shortcut', 'history');
   else if (ctrl && key === 'j') window.webContents.send('browser:shortcut', 'downloads');
   else if (ctrl && input.shift && key === 'o') window.webContents.send('browser:shortcut', 'bookmarks');
   else if (key === 'f11') { popovers.close(true); window.setFullScreen(!window.isFullScreen()); }
@@ -540,7 +549,9 @@ function handleShortcut(event, input) {
     activateTab(ids[(ids.indexOf(activeId) + (input.shift ? ids.length - 1 : 1)) % ids.length]);
   } else if (ctrl && /^[1-9]$/.test(key)) {
     const ids = [...tabs.keys()]; activateTab(key === '9' ? ids.at(-1) : ids[Number(key) - 1]);
-  } else if (input.alt && key === 'arrowleft' && tab.ie) tab.ie.request('back').catch(()=>{});
+  } else if (process.platform === 'darwin' && input.meta && key === '[' && tab.view.webContents.navigationHistory.canGoBack()) tab.view.webContents.navigationHistory.goBack();
+  else if (process.platform === 'darwin' && input.meta && key === ']' && tab.view.webContents.navigationHistory.canGoForward()) tab.view.webContents.navigationHistory.goForward();
+  else if (input.alt && key === 'arrowleft' && tab.ie) tab.ie.request('back').catch(()=>{});
   else if (input.alt && key === 'arrowright' && tab.ie) tab.ie.request('forward').catch(()=>{});
   else if (input.alt && key === 'arrowleft' && tab.view.webContents.navigationHistory.canGoBack()) tab.view.webContents.navigationHistory.goBack();
   else if (input.alt && key === 'arrowright' && tab.view.webContents.navigationHistory.canGoForward()) tab.view.webContents.navigationHistory.goForward();
@@ -647,7 +658,7 @@ function updateAppearanceWindows() {
   const iconKey = appearance.icons.custom.brand || '';
   if (iconKey !== lastWindowIcon) {
     const icon = appearanceAssets?.windowIcon(iconKey);
-    if (icon && !icon.isEmpty()) { window.setIcon(icon); lastWindowIcon = iconKey; }
+    if (icon && !icon.isEmpty()) { if (process.platform === 'darwin') app.dock?.setIcon(icon); else window.setIcon(icon); lastWindowIcon = iconKey; }
   }
 }
 
@@ -792,7 +803,8 @@ function destroyTabs() {
   }
 }
 async function requestClose() {
-  if (closePending || closing) return;
+  if (closing) return true;
+  if (closePending) return false;
   closePending = true;
   contextMenus?.close(true);
   popovers?.close(true);
@@ -805,7 +817,7 @@ async function requestClose() {
          confirmLabel: '关闭窗口', restore: isPrivate ? undefined : store.data.settings.startup === 'restore',
         tabs: [...tabs.values()].map(tab => ({ title: tab.title, url: tab.url, icon: tab.favicon })),
       });
-      if (!result.accepted) return;
+      if (!result.accepted) return false;
     }
     closing = true;
     clearTimeout(updateTimer); updateTimer = null;
@@ -847,19 +859,21 @@ async function requestClose() {
     clearTimeout(updateTimer); updateTimer = null;
     destroyTabs();
     window?.close();
+    return true;
    } catch (error) { closing = false; console.error('Window close failed:', error); toast('无法关闭浏览器：' + error.message); }
   finally { closePending = false; }
 }
 
   configureDownloads(webSession);
-  window = new BrowserWindow({ width: 1360, height: 900, minWidth: 760, minHeight: 560, frame: false,
+  window = new BrowserWindow({ width: 1360, height: 900, minWidth: 760, minHeight: 560, frame: process.platform === 'darwin',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 14, y: 12 } } : {}),
     backgroundColor: '#ffffff', title: isPrivate ? 'luna · 无痕' : 'luna', show: false,
     icon: path.join(__dirname, 'ui', 'assets', 'app.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.bundle.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   popovers = new Popovers(window, path.join(__dirname, 'preload.bundle.js'), snapshot, sendState);
   modalLayer = new ModalLayer(window, layout);
-  controller = { window, tabs, groups, isPrivate, webSession, popovers, createTab, activateTab, closeTab, navigate, openExtensions, queueState, sendState, notice: toast, updateAppearance: updateAppearanceWindows, nativeDownload: handleNativeDownload, sessionLayout, tabEvent, handleShortcut, receiveTab, detachTab, moveTab,
+  controller = { window, tabs, groups, isPrivate, webSession, popovers, createTab, activateTab, closeTab, navigate, openExtensions, queueState, sendState, notice: toast, updateAppearance: updateAppearanceWindows, nativeDownload: handleNativeDownload, sessionLayout, tabEvent, handleShortcut, receiveTab, detachTab, moveTab, close: requestClose,
     allowedURL: url => isWebUrl(url) || isViewSourceUrl(url) || extensionManager?.allowedURL(url), canReceiveTab: () => !closing && !modalOpen && !prompts?.active && tabs.size < 30,
     get compatibility() { return compatibility; },
     get activeId() { return activeId; }, get registeringTab() { return registeringTab; }, get prompts() { return prompts; } };
@@ -1002,9 +1016,13 @@ async function requestClose() {
         });
         try { return await importingPromise; } finally { importingPromise = null; }
       }
-      case 'default-browser-status': return { ...await defaultStatus(process.execPath), available: app.isPackaged && process.platform === 'win32' && !customProfile };
+      case 'default-browser-status': return { ...(process.platform === 'darwin' ? { isDefault: app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https') } : await defaultStatus(process.execPath)), platform: process.platform, available: app.isPackaged && ['win32', 'darwin'].includes(process.platform) && !customProfile };
       case 'default-browser-register': {
-        if (!app.isPackaged || customProfile || process.platform !== 'win32') throw new Error('请在正式 Windows 成品中设置默认浏览器');
+        if (!app.isPackaged || customProfile || !['win32', 'darwin'].includes(process.platform)) throw new Error('请在正式成品中设置默认浏览器');
+        if (process.platform === 'darwin') {
+          app.setAsDefaultProtocolClient('http'); app.setAsDefaultProtocolClient('https');
+          toast('请在系统提示中确认；也可在 macOS 系统设置的默认网页浏览器中选择 luna'); return;
+        }
         await registerBrowser(process.execPath); await shell.openExternal('ms-settings:defaultapps'); toast('已注册 luna，请在 Windows 默认应用中选择 luna'); return;
       }
       case 'address-suggest': {
@@ -1321,12 +1339,14 @@ app.whenReady().then(async () => {
   if (!singleInstance) return;
   cleanupPrivateDirectories(privateSessionsRoot);
   sharedStore = new Store(app.getPath('userData'));
-   sharedImporter = new BrowserImporter({ helper: app.isPackaged ? path.join(process.resourcesPath, 'luna-browser-import.exe') : path.join(__dirname, 'native', 'luna-browser-import.exe') });
+  sharedImporter = new BrowserImporter({ helper: process.platform === 'win32' ? app.isPackaged ? path.join(process.resourcesPath, 'luna-browser-import.exe') : path.join(__dirname, 'native', 'luna-browser-import.exe') : undefined });
   sharedAssets = new AppearanceAssets(app.getPath('userData'), session.defaultSession);
   await sharedAssets.cleanup(sharedStore.data.settings.appearance);
   nativeTheme.themeSource = sharedStore.data.settings.theme;
   nativeTheme.on('updated', broadcast);
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([
+    { role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' },
+  ]) : null);
   const restore = sharedStore.data.restoreOnce ?? (sharedStore.data.settings.startup === 'restore');
   const saved = restore ? sharedStore.data.sessionWindows?.length ? sharedStore.data.sessionWindows : sharedStore.data.session.length ? [{ urls: [...sharedStore.data.session], activeIndex: sharedStore.data.sessionActive }] : [] : [];
   sharedStore.data.restoreOnce = null; sharedStore.save();
@@ -1334,4 +1354,13 @@ app.whenReady().then(async () => {
   else await createBrowser();
   const browser = focusedBrowser(); for (const url of launchURLs.splice(0, 20)) browser?.createTab(url);
 }).catch(error => { console.error(error); app.quit(); });
-app.on('window-all-closed', () => app.quit());
+app.on('activate', () => { if (app.isReady() && !browsers.size) createBrowser().catch(console.error); });
+app.on('before-quit', event => {
+  if (process.platform !== 'darwin' || quitting || !browsers.size) return;
+  event.preventDefault(); if (quitRequest) return;
+  quitRequest = (async () => {
+    for (const browser of [...browsers]) if (!await browser.close()) return;
+    quitting = true; app.quit();
+  })().finally(() => { quitRequest = null; });
+});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
