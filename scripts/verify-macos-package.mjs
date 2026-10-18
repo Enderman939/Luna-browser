@@ -23,6 +23,7 @@ try {
   const files = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'));
   for (const file of ['/LICENSE', '/THIRD_PARTY_NOTICES.md', '/src/local-files.js', '/node_modules/electron-chrome-extensions/LICENSE-GPL']) assert.ok(files.includes(file));
   assert.equal(files.some(file => /^\/(?:\.github|tests|scripts|artifacts|src\/native)\//.test(file)), false);
+  assert.equal(files.some(file => /^\/session-[^/]+\.md$/.test(file)), false);
   const sums = fs.readFileSync(path.join(path.dirname(report.zip), 'SHA256SUMS-macos-arm64.txt'), 'utf8');
   for (const file of [report.zip, report.dmg]) assert.ok(sums.includes(createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + path.basename(file)));
   for (const file of ['macos-smoke-result.json', 'features-result.json', 'import-search-result.json', 'private-security-result.json']) {

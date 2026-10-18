@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export const packageIgnore = [/^\/tests/, /^\/scripts/, /^\/docs/, /^\/artifacts/, /^\/dist/, /^\/\.github(?:\/|$)/,
-  /^\/package-lock\.json$/, /^\/README\.md$/, /^\/\.gitignore$/, /^\/start\.cmd$/, /^\/src\/native(?:\/|$)/,
+  /^\/package-lock\.json$/, /^\/README\.md$/, /^\/session-[^/]+\.md$/, /^\/\.gitignore$/, /^\/start\.cmd$/, /^\/src\/native(?:\/|$)/,
   /^\/src\/ui\/assets\/[^/]+\.aip$/i, /^\/src\/ui\/assets\/Luna-(?:SetupFiles|cache)(?:\/|$)/i];
 
 export async function trimDependencies({ buildPath }) {

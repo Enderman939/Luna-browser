@@ -1,10 +1,10 @@
 const { dialogPage } = require('./dialog-helpers');
 async function closeApp(application, page, restore) {
-  const process = application.process();
-  if (process.exitCode !== null || process.signalCode !== null) { await application.close().catch(() => {}); return; }
+  const child = application.process();
+  if (child.exitCode !== null || child.signalCode !== null) { await application.close().catch(() => {}); return; }
   const exited = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Browser did not close')), 15000);
-    process.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
   });
   if (page && !page.isClosed()) {
     const existing = page.locator('#confirmation-dialog[open]');

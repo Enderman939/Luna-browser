@@ -17,3 +17,30 @@ test('macOS discovers Chromium and Firefox under the current home Application Su
   assert.equal(roots.at(-1).root, path.join('/Users/alice', 'Library/Application Support/Firefox/Profiles'));
   assert.equal(roots.at(-1).kind, 'firefox');
 });
+test('macOS smoke-test shutdown quits the resident application after its last window closes', async () => {
+  const { EventEmitter } = require('node:events');
+  const { createRequire } = require('node:module');
+  const fs = require('node:fs'), vm = require('node:vm');
+  const helper = require.resolve('./app-helpers');
+  const context = { module: { exports: {} }, require: createRequire(helper), process: { platform: 'darwin' }, setTimeout, clearTimeout };
+  vm.runInNewContext(fs.readFileSync(helper, 'utf8'), context, { filename: helper });
+  const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+  let windowClosed = false, quitCalls = 0, automationClosed = false;
+  const page = {
+    isClosed: () => windowClosed,
+    locator: () => ({ count: async () => 0 }),
+    evaluate: async () => { windowClosed = true; },
+    waitForSelector: async () => { throw new Error('Window closed'); },
+  };
+  const application = {
+    process: () => child,
+    evaluate: async callback => callback({
+      BrowserWindow: { getAllWindows: () => windowClosed ? [] : [{}] },
+      app: { quit() { quitCalls++; child.exitCode = 0; child.emit('exit', 0); } },
+    }),
+    close: async () => { automationClosed = true; },
+  };
+  await context.module.exports.closeApp(application, page, false);
+  assert.equal(windowClosed, true); assert.equal(quitCalls, 1);
+  assert.equal(child.exitCode, 0); assert.equal(automationClosed, true);
+});
