@@ -59,7 +59,7 @@ async function run() {
   const screenshot = async name => { await currentPage.waitForTimeout(300); await currentPage.screenshot({ path: path.join(artifacts, name) }); };
   await launch();
   await application.evaluate(({ dialog }, downloadDirectory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [downloadDirectory] }); }, downloadDirectory);
-  await command('choose-download-path'); await command('update-settings', { askDownload: false, theme: 'dark', downloadThreads: 8 });
+  await command('choose-download-path'); await command('update-settings', { theme: 'dark', downloadThreads: 8 });
   await command('navigate', base);
   await waitFor(async () => (await state()).tabs[0].title === 'Luna Feature Test' && (await state()).tabs[0].favicon.startsWith('data:image/'), 'real favicon');
   await waitFor(async () => await currentPage.locator('.tab-symbol img').count() === 1, 'favicon rendered');
@@ -90,7 +90,7 @@ async function run() {
   assert.equal(await panel.locator(`[data-id="${id}"] .file-preview img`).count(), 1);
   await panel.screenshot({ path: path.join(artifacts, 'download-file-icon.png') });
   await panel.locator('#panel-close').click();
-  await currentPage.locator('#history-button').click(); panel = await popupPage(application, 'history'); assert.equal(await panel.locator('#panel').getAttribute('data-kind'), 'history');
+  await currentPage.locator('#history-button').click(); panel = await popupPage(application, 'history'); await panel.waitForSelector('#panel[data-kind="history"]:not([hidden])');
   assert.equal(await panel.locator('.download-tools').isHidden(), true); assert.equal(await panel.locator('.panel-tabs').count(), 0);
   await panel.locator('#panel-close').click();
   await remote('document.getElementById("single").click()');

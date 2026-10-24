@@ -82,3 +82,13 @@ for (const directory of output) {
 }
 await fs.mkdir('artifacts', { recursive: true });
 await fs.writeFile('artifacts/package-size-result.json', JSON.stringify(reports, null, 2));
+// Alternate version directories let a build finish while the previous app is in use.
+// Publish the launcher only after the new package and archive have succeeded.
+const standardOutput = path.resolve('dist', channel);
+if (output.length === 1) {
+  const relative = path.relative(standardOutput, path.resolve(output[0]));
+  if (relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
+    const target = relative.replaceAll('%', '%%').replaceAll('/', '\\') + '\\luna.exe';
+    await fs.writeFile(path.join(standardOutput, 'launch.cmd'), '@echo off\r\nsetlocal DisableDelayedExpansion\r\nstart "" "%~dp0' + target + '"\r\n');
+  }
+}

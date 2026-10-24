@@ -48,6 +48,11 @@ async function run() {
   }, key);
   const screenshot = async name => { await page.waitForTimeout(1100); await page.screenshot({ path: path.join(artifacts, name) }); };
   await page.waitForSelector('.tab.selected');
+  await application.evaluate(({ app, dialog }, directory) => {
+    app.setPath('downloads', directory);
+    dialog.showSaveDialog = async () => { throw new Error('Normal downloads must not show a save dialog'); };
+  }, profile);
+  await page.evaluate(() => { globalThis.downloadNotices = []; window.browser.onNotice(message => { if (message.startsWith('下载完成：')) globalThis.downloadNotices.push(message); }); });
   await screenshot('home.png');
   assert.equal((await state()).tabs.length, 1);
   assert.equal(await page.locator('.wordmark').textContent(), 'luna');
@@ -102,12 +107,11 @@ async function run() {
   await page.locator('#error-home').click(); await page.waitForSelector('#newtab:not([hidden])');
   await command('navigate', base); await waitFor(async () => (await state()).tabs[0].title === '测试起点', 'website before download');
   const saved = path.join(profile, 'luna-test.txt');
-  await application.evaluate(({ session }, saved) => {
-    session.fromPartition('persist:luma-web').prependOnceListener('will-download', (_, item) => item.setSavePath(saved));
-  }, saved);
   await remote('document.getElementById("download").click()');
   await waitFor(async () => (await state()).downloads.some(entry => entry.status === 'completed'), 'download completion');
   assert.equal(fs.readFileSync(saved, 'utf8'), 'luna download works.');
+  assert.equal((await state()).settings.downloadNotifications, true);
+  await waitFor(() => page.evaluate(() => globalThis.downloadNotices.length === 1), 'default completion reminder');
   await page.locator('#downloads-button').click(); panel = await popupPage(application, 'downloads'); await panel.waitForSelector('.download-entry');
   assert.match(await panel.locator('.download-entry').textContent(), /luna-test.txt/);
   await panel.screenshot({ path: path.join(artifacts, 'downloads.png') });
@@ -132,7 +136,7 @@ async function run() {
   assert.equal((await state()).recentSites.filter(entry => entry.url.startsWith(base)).length, 1, 'recent sites deduplicate the same website');
   await waitFor(async () => (await page.locator('.shortcut-open').count()) === (await state()).recentSites.length, 'recent website buttons');
   await screenshot('home-recent.png');
-  await page.locator('#menu-button').click(); const browserMenu = await popupPage(application, 'browser'); await browserMenu.locator('[data-menu="settings"]').click();
+  await page.locator('#menu-button').click(); const browserMenu = await popupPage(application, 'browser'); await browserMenu.locator('[data-browser-action="settings"]').click();
   await page.waitForSelector('#settings-page:not([hidden])');
   const settingsId = (await state()).activeId;
   assert.equal((await state()).tabs.length, 2);
@@ -156,7 +160,7 @@ async function run() {
   await screenshot('settings-appearance.png');
   await page.locator('#settings-search').fill('下载');
   assert.equal(await page.locator('[data-group="downloads"]').isVisible(), true);
-  assert.equal(await page.locator('[data-group="appearance"]').isHidden(), true);
+  assert.equal(await page.locator('[data-group="appearance"]').evaluateAll(groups => groups.every(group => group.hidden)), true);
   await page.locator('#settings-search').fill('missing-setting'); await page.waitForSelector('#settings-empty:not([hidden])');
   await page.locator('[data-settings-section="startup"]').click();
   await page.locator('#setting-homePage').fill('example.com bad input'); await page.locator('#homepage-form button').click();
@@ -176,7 +180,8 @@ async function run() {
   }, autoDirectory);
   await page.locator('#choose-download-path').click();
   await waitFor(async () => (await state()).settings.downloadPath === autoDirectory, 'download directory selected');
-  await page.locator('#setting-askDownload').uncheck();
+  await page.locator('#setting-downloadNotifications').uncheck();
+  assert.equal(await page.locator('#setting-askDownload').count(), 0);
   await command('activate', firstId); await command('navigate', base);
   await waitFor(async () => (await state()).tabs.find(tab => tab.id === firstId).title === '测试起点', 'automatic download page');
   await remote('document.getElementById("download").click()');
@@ -185,6 +190,12 @@ async function run() {
   await remote('document.getElementById("download").click()');
   await waitFor(async () => (await state()).downloads.filter(entry => entry.status === 'completed').length === 3, 'collision-safe second automatic download');
   assert.equal(fs.readFileSync(path.join(autoDirectory, 'luna-test (1).txt'), 'utf8'), 'luna download works.');
+  assert.equal(await page.evaluate(() => globalThis.downloadNotices.length), 1, 'disabled reminders stay silent');
+  await command('settings'); await page.locator('[data-settings-section="about"]').click();
+  await page.locator('#setting-autoUpdate').uncheck(); await waitFor(async () => !(await state()).settings.autoUpdate, 'automatic update setting saved');
+  assert.match(await page.locator('#app-update-status').textContent(), process.env.LUNA_EXECUTABLE ? /尚未检查|正在检查|当前已是|发现新版本|更新未完成/ : /正式成品/);
+  await page.screenshot({ path: path.join(artifacts, 'settings-app-updates.png') });
+  await command('activate', firstId);
   await command('home'); await page.waitForSelector('#newtab:not([hidden])');
   await screenshot('home-dark.png');
   await command('settings'); await page.waitForSelector('#settings-page:not([hidden])');
@@ -216,6 +227,7 @@ async function run() {
   assert.equal(restored.tabs.find(tab => tab.id === restored.activeId)?.url, base + '/');
   assert.equal(restored.settings.theme, 'dark'); assert.equal(restored.settings.searchEngine, 'google');
   assert.equal(restored.settings.showBookmarks, false); assert.equal(restored.settings.downloadPath, autoDirectory);
+  assert.equal(restored.settings.downloadNotifications, false); assert.equal(restored.settings.autoUpdate, false);
   await restoredPage.waitForSelector('html[data-theme="dark"]');
   assert.equal(await restoredPage.locator('#bookmarkbar').isHidden(), true);
   await restoredPage.evaluate(() => window.browser.command('update-settings', { startup: 'newtab' }));
@@ -229,7 +241,7 @@ async function run() {
   fs.writeFileSync(path.join(artifacts, 'smoke-result.json'), JSON.stringify({ passed: true, publicNetwork, rendererErrors: failures, testedAt: new Date().toISOString() }, null, 2));
 }
 run().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
-  if (application) await application.close().catch(() => {});
+  if (application) { await application.evaluate(({ app }) => app.exit(1)).catch(() => {}); await application.close().catch(() => {}); }
   await new Promise(resolve => server.close(resolve));
   fs.rmSync(profile, { recursive: true, force: true });
 });

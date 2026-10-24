@@ -143,11 +143,11 @@
               <div class="setting-row"><span class="setting-label">默认浏览器<span id="default-browser-status" class="setting-detail">点击按钮注册 luna，并在 Windows 设置中选择</span></span><button id="default-browser-register" class="secondary-button">设为默认浏览器</button></div>
             </div>
           </section>
-          <section class="settings-group" data-group="downloads" data-keywords="下载 文件 保存 位置 目录 询问">
+          <section class="settings-group" data-group="downloads" data-keywords="下载 文件 保存 位置 目录 完成 提醒 通知">
             <h3>下载</h3>
             <div class="settings-card">
               <div class="setting-row setting-row-stacked"><span>下载位置</span><div class="download-location"><span id="download-location"></span><button class="secondary-button" id="choose-download-path">更改</button></div><button class="text-button" id="reset-download-path">使用默认下载位置</button></div>
-              <label class="setting-row"><span class="setting-label">下载前询问保存位置</span><input type="checkbox" class="switch" id="setting-askDownload" data-setting="askDownload"></label>
+              <label class="setting-row"><span class="setting-label">下载完成后提醒<span class="setting-detail">显示完成卡片和下载角标，后台发送系统通知；无痕仅在窗口内提醒</span></span><input type="checkbox" class="switch" id="setting-downloadNotifications" data-setting="downloadNotifications"></label>
               <label class="setting-row"><span class="setting-label">使用多线程下载<span class="setting-detail">不支持分段的网站使用单连接</span></span><input type="checkbox" class="switch" id="setting-parallelDownloads" data-setting="parallelDownloads"></label>
               <label class="setting-row"><span class="setting-label">每个下载的线程数</span><select id="setting-downloadThreads" data-setting="downloadThreads"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select></label>
             </div>
@@ -173,9 +173,13 @@
             <div class="password-list-heading"><h3>不再保存的网站</h3></div><div id="password-blocked" class="settings-card password-list"></div>
             <p class="password-note">仅在匹配的网站填充，不会自动提交登录。密码由当前 Windows 账号加密保护。</p>
           </section>
-          <section class="settings-group" data-group="about" data-keywords="关于 luna 版本 Chromium">
+          <section class="settings-group" data-group="about" data-keywords="关于 luna 版本 Chromium 更新 自动 GitHub Release 下载 安装">
             <h3>关于 luna</h3>
             <div class="settings-card about-card"><img src="assets/mark.svg" alt=""><div><strong>luna</strong><span id="app-version"></span><span id="chromium-version"></span></div></div>
+            <div class="settings-card">
+              <label class="setting-row"><span class="setting-label">自动下载浏览器更新<span class="setting-detail">从 GitHub 正式 Release 检查并下载适用于本机的版本，完成后提醒重启安装</span></span><input type="checkbox" class="switch" id="setting-autoUpdate" data-setting="autoUpdate"></label>
+              <div class="setting-row setting-row-stacked"><span id="app-update-status" role="status" aria-live="polite">尚未检查更新</span><progress id="app-update-progress" max="100" value="0" aria-label="更新下载进度" hidden></progress><span id="app-update-error" class="form-error" role="status" hidden></span><div class="inline-field"><button id="app-update-check" class="secondary-button">检查更新</button><button id="app-update-download" class="secondary-button" hidden>下载更新</button><button id="app-update-install" class="primary-button" hidden>重启并更新</button></div></div>
+            </div>
           </section>
           <div class="settings-empty" id="settings-empty" hidden>没有找到相关设置</div>
         </div>

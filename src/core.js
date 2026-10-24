@@ -11,10 +11,10 @@ const { DEFAULT_APPEARANCE, sanitizeAppearance } = require('./ui/appearance-mode
 const { sanitizeBookmarks } = require('./bookmarks');
 const DEFAULT_SETTINGS = Object.freeze({
   searchEngine: 'baidu', theme: 'light', showBookmarks: true, showHome: true,
-  showShortcuts: true, startup: 'restore', homePage: '', downloadPath: '', askDownload: true,
+  showShortcuts: true, startup: 'restore', homePage: '', downloadPath: '', downloadNotifications: true,
   parallelDownloads: true, downloadThreads: 8,
   savePasswords: true, autofillPasswords: true,
-  searchSuggestions: true,
+  searchSuggestions: true, autoUpdate: true,
   appearance: DEFAULT_APPEARANCE,
 });
 
@@ -24,7 +24,7 @@ function sanitizeSettings(value = {}) {
   if (Object.hasOwn(SEARCH_ENGINES, value.searchEngine)) settings.searchEngine = value.searchEngine;
   if (['light', 'dark', 'system'].includes(value.theme)) settings.theme = value.theme;
   if (['restore', 'newtab'].includes(value.startup)) settings.startup = value.startup;
-  for (const key of ['showBookmarks', 'showHome', 'showShortcuts', 'askDownload', 'parallelDownloads', 'savePasswords', 'autofillPasswords', 'searchSuggestions']) {
+  for (const key of ['showBookmarks', 'showHome', 'showShortcuts', 'downloadNotifications', 'parallelDownloads', 'savePasswords', 'autofillPasswords', 'searchSuggestions', 'autoUpdate']) {
     if (typeof value[key] === 'boolean') settings[key] = value[key];
   }
   if ([1, 2, 4, 8, 16].includes(value.downloadThreads)) settings.downloadThreads = value.downloadThreads;

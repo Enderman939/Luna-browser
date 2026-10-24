@@ -66,7 +66,7 @@ async function run() {
   application = await electron.launch({ executablePath: process.env.LUNA_EXECUTABLE || require('electron'), args: process.env.LUNA_EXECUTABLE ? ['--disable-gpu'] : [root, '--disable-gpu'], env, timeout: 30000 });
   application.on('window', page => page.on('pageerror', error => errors.push(error.message)));
   main = await application.firstWindow(); await main.waitForSelector('.tab.selected');
-  await command('update-settings', { theme: 'dark', searchEngine: 'bing', askDownload: false });
+  await command('update-settings', { theme: 'dark', searchEngine: 'bing' });
   await application.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, profile);
   await command('choose-download-path');
   await command('navigate', base); await wait(async () => (await state()).tabs[0].title === 'Luna Context Fixture', 'fixture loads');

@@ -1,10 +1,10 @@
 # macOS Apple Silicon 版
 
-Luna 1.1.0，Electron 44.7.2，原生 arm64，面向 M1 及后续 M 系列芯片。运行不需要 Node.js 或 Rosetta。
+Luna 1.1.1 源码，Electron 44.7.2，面向 M1 及后续 M 系列芯片的原生 arm64 构建。当前适配与构建脚本已提供，Mac 成品仍待原生构建与验证，尚未发布对应附件。运行不需要 Node.js 或 Rosetta。
 
 ## 安装与启动
 
-从 [1.1.0 Release](https://github.com/Enderman939/Luna-browser/releases/tag/v1.1.0) 下载 `luna-1.1.0-darwin-arm64.dmg`，打开并将 `luna.app` 拖入 **Applications／应用程序**。也可使用 `luna-1.1.0-darwin-arm64.zip`。更新前退出 Luna，再替换应用程序中的整个 `.app`；浏览资料保存在 `~/Library/Application Support/luna`。
+原生构建验证通过后，将在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases) 提供 `luna-版本号-darwin-arm64.dmg` 和 ZIP。DMG 打开后将 `luna.app` 拖入 **Applications／应用程序**。更新前退出 Luna，再替换应用程序中的整个 `.app`；浏览资料保存在 `~/Library/Application Support/luna`。
 
 当前使用 ad-hoc 本地签名，尚无 Apple Developer ID 签名和公证。首次打开若被系统拦截，在 **系统设置 → 隐私与安全性 → 仍要打开** 中确认。应用内的网站授权与 macOS 的摄像头、麦克风等系统授权分别生效。
 
@@ -36,4 +36,4 @@ node scripts/verify-macos-package.mjs
 
 GitHub Actions 的 **Build macOS arm64** 提供同样的原生构建与验证流程。输出位于 `dist/release`，测试记录保存在 `artifacts`；最低系统版本继承所用 Electron 运行包的声明。构建在 macOS 上完成 ASAR 完整性摘要和本地签名，使用 `ditto` 保存框架符号链接与可执行权限；校验时重新解压 ZIP 检查 arm64 Mach-O、签名、权限、框架链接、应用归档、许可证和哈希。
 
-Mac 版源码使用 [v1.1.0-macos-arm64 标签](https://github.com/Enderman939/Luna-browser/tree/v1.1.0-macos-arm64)，Windows 1.1.0 原标签保留。所有源码和第三方许可同样遵循仓库中的 GPL-3.0-only 与 `THIRD_PARTY_NOTICES.md`。
+Mac 版构建与验证通过后，应创建对应源码标签随成品发布。所有源码和第三方许可同样遵循仓库中的 GPL-3.0-only 与 `THIRD_PARTY_NOTICES.md`。

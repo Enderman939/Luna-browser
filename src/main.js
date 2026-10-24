@@ -1,4 +1,9 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol } = require('electron');
+if (process.argv.includes('--luna-trash-helper')) {
+  require('./trash-file').runTrashHelper();
+  return;
+}
+
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -16,6 +21,11 @@ const { addressCandidates } = require('./address-candidates');
 const { SearchSuggestions, searchCandidates } = require('./search-suggestions');
 const { BrowserImporter, TYPES: IMPORT_TYPES } = require('./browser-import');
 const { DownloadHistory, fileIdentity } = require('./download-history');
+const { trashFile } = require('./trash-file');
+const { notifyDownload } = require('./download-notifications');
+const { DownloadNotices } = require('./download-notices');
+const { AppUpdates } = require('./app-updates');
+const { prepareUpdate } = require('./update-installer');
 const { parseBookmarkHTML, exportBookmarkHTML } = require('./bookmarks');
 const { externalURLs, registerBrowser, defaultStatus } = require('./default-browser');
 const { cleanupPrivateDirectories, createPrivateDirectory, removePrivateDirectory, watchPrivateCleanup } = require('./private-sessions');
@@ -53,7 +63,7 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const launchURLs = externalURLs(process.argv);
 const browsers = new Set(), services = new Map(), closedSessions = [];
-let quitRequest = null, quitting = false;
+let quitRequest = null, quitting = false, updateInstalling = false, sharedUpdater;
 let sharedStore, sharedAssets, sharedExtensions, sharedVault, sharedImporter, privateContext, extensionsReady, tabSequence = 0;
 const privateSessionsRoot = path.join(profile, 'private-sessions');
 const extensionPartitions = new Map();
@@ -108,6 +118,7 @@ const webSession = isPrivate ? privateContext.session : session.fromPartition('p
 const directory = isPrivate ? privateContext.directory : app.getPath('userData');
 let window, store = isPrivate ? privateContext.store : sharedStore, activeId, overlay = false, updateTimer;
 let downloadManager, extensionManager, nativeTimer, closing = false;
+let downloadNotices;
 let registeringTab = false;
 let prompts, browsingData, closePending = false, clearingPromise = null, importingPromise = null, modalOpen = false;
 let popovers;
@@ -151,7 +162,9 @@ function snapshot() {
     privateProtection: isPrivate ? { ...context.protection.snapshot(tabs.get(activeId)?.view.webContents), extensionStorage: context.extensionStorage } : null,
     settings: store.data.settings, dark: nativeTheme.shouldUseDarkColors,
     downloadPath: store.data.settings.downloadPath || app.getPath('downloads'),
+    completedDownloads: downloadNotices?.count || 0,
     version: app.getVersion(), chromium: process.versions.chrome,
+    update: sharedUpdater?.snapshot(),
     icons: store.data.icons,
     extensions: extensionManager?.snapshot() || [], extensionInstalling: extensionManager?.installing || false,
     extensionsEnabled: extensionManager?.globalEnabled !== false,
@@ -176,7 +189,11 @@ function queueState() {
   if (updateTimer) return;
   updateTimer = setTimeout(() => {
     updateTimer = null;
-    if (!closing && window && !window.isDestroyed()) { const state = snapshot(); window.webContents.send('browser:state', state); popovers?.state(state); }
+    if (!closing && window && !window.isDestroyed()) {
+      if (!store.data.settings.downloadNotifications && downloadNotices?.count) downloadNotices.clear();
+      else downloadNotices?.refresh();
+      const state = snapshot(); window.webContents.send('browser:state', state); popovers?.state(state);
+    }
   }, 25);
 }
 function toast(message) {
@@ -643,6 +660,7 @@ function applySettings(value) {
   if (isPrivate) { store.data.settings.savePasswords = false; store.data.settings.autofillPasswords = false; }
   if (!isPrivate) nativeTheme.themeSource = store.data.settings.theme;
   store.save();
+  if (!isPrivate && previous.autoUpdate !== store.data.settings.autoUpdate) sharedUpdater?.configure(store.data.settings.autoUpdate);
   if (previous.savePasswords !== store.data.settings.savePasswords || previous.autofillPasswords !== store.data.settings.autofillPasswords) passwordManager?.settingsChanged();
   if (previous.searchSuggestions !== store.data.settings.searchSuggestions || previous.searchEngine !== store.data.settings.searchEngine) {
     suggestionService.cancel(); suggestionRequest++; suggestions.phrases = []; suggestions.selected = -1;
@@ -675,12 +693,21 @@ async function saveDownload(tab, url, suggestedName) {
 }
 async function chooseDownloadFile(name, existing) {
   if (existing) return { file: existing, overwrite: true };
+  return { file: downloadDestination(name), overwrite: false };
+}
+function downloadDestination(name) {
   const directory = store.data.settings.downloadPath || app.getPath('downloads');
-  if (store.data.settings.askDownload) {
-    const result = await dialog.showSaveDialog(window, { title: '保存下载文件', defaultPath: path.join(directory, name) });
-    return result.canceled || !result.filePath ? null : { file: result.filePath, overwrite: true };
-  }
-  return { file: downloadManager.uniquePath(path.join(directory, name)), overwrite: false };
+  fs.mkdirSync(directory, { recursive: true });
+  const extension = path.extname(name), stem = path.basename(name, extension);
+  let file = path.join(directory, name), suffix = 1;
+  const reserved = new Set([...downloads.values(), ...downloadManager.jobs.values()].filter(entry => !['completed', 'cancelled'].includes(entry.status)).map(entry => path.resolve(entry.file || '').toLowerCase()));
+  while (fs.existsSync(file) || reserved.has(path.resolve(file).toLowerCase())) file = path.join(directory, `${stem} (${suffix++})${extension}`);
+  return file;
+}
+function downloadCompleted(entry) {
+  const browser = ownerOfDownload(entry) || [...browsers].find(browser => browser.webSession === webSession);
+  notifyDownload({ enabled: (isPrivate ? store : sharedStore).data.settings.downloadNotifications, browser, entry, name: entry.name, file: entry.file,
+    isPrivate, Notification, reveal: file => shell.showItemInFolder(file) });
 }
 async function beginManagedDownload(url, name, headers = {}, existing) {
   const selected = await chooseDownloadFile(name, existing);
@@ -698,8 +725,8 @@ function configureDownloads(webSession) {
   downloadManager = new DownloadManager({ directory,
     fetch: (url, options) => webSession.fetch(url, { ...options, credentials: 'include' }),
     onComplete: async job => {
+      downloadCompleted(job);
       job.icon = await fileIcon(job.file, job.name);
-      (ownerOfDownload(job) || [...browsers].find(browser => browser.webSession === webSession))?.notice('下载完成：' + job.name);
       if (job.completion === 'open') { const error = await shell.openPath(job.file); if (error) toast('无法打开文件：' + error); }
       else if (job.completion === 'reveal') shell.showItemInFolder(job.file);
     },
@@ -752,7 +779,7 @@ function handleNativeDownload(event, item, owner) {
       for (const [id, entry] of downloads) { if (['completed', 'cancelled'].includes(entry.status)) { downloads.delete(id); break; } }
     }
     const id = 'native-' + Date.now() + '-' + downloads.size;
-    const entry = { id, name, url, item, file: '', received: 0, total: item.getTotalBytes(), status: 'waiting', managed: false, mode: 'native', threads: [], resumable: false, speed: 0, eta: null, speedLimit: 0, completion: 'none', error: '', icon: '', createdAt: Date.now(), lastTime: Date.now(), lastReceived: 0 };
+    const entry = { id, name, url, item, file: '', windowId: window.id, received: 0, total: item.getTotalBytes(), status: 'waiting', managed: false, mode: 'native', threads: [], resumable: false, speed: 0, eta: null, speedLimit: 0, completion: 'none', error: '', icon: '', createdAt: Date.now(), lastTime: Date.now(), lastReceived: 0 };
     downloads.set(id, entry);
     fileIcon('', name).then(icon => { entry.icon = icon; sendState(); }).catch(() => {});
     item.on('updated', (_, state) => {
@@ -768,24 +795,17 @@ function handleNativeDownload(event, item, owner) {
       entry.threads = [{ id: 1, start: 0, end: entry.total ? entry.total - 1 : null, received: entry.received, status: state }];
       downloadHistory.import([entry]);
       if (state === 'completed') {
-        entry.icon = await fileIcon(entry.file, entry.name); toast('下载完成：' + name);
+        downloadCompleted(entry); entry.icon = await fileIcon(entry.file, entry.name);
         if (entry.completion === 'open') { const error = await shell.openPath(entry.file); if (error) toast(error); }
         else if (entry.completion === 'reveal') shell.showItemInFolder(entry.file);
       }
       sendState();
     });
     sendState();
-    // Electron owns the save dialog and starts the download after a path is chosen.
-    const directory = store.data.settings.downloadPath || app.getPath('downloads');
-    if (forceSave) item.setSavePath(selectedSave.file);
-    else if (store.data.settings.askDownload) item.setSaveDialogOptions({ title: '保存下载文件', defaultPath: path.join(directory, name) });
+    if (forceSave) { entry.file = selectedSave.file; item.setSavePath(selectedSave.file); }
     else {
       try {
-        fs.mkdirSync(directory, { recursive: true });
-        const extension = path.extname(name), stem = path.basename(name, extension);
-        let destination = path.join(directory, path.basename(name)), suffix = 1;
-        while (fs.existsSync(destination)) destination = path.join(directory, `${stem} (${suffix++})${extension}`);
-        item.setSavePath(destination);
+        entry.file = downloadDestination(name); item.setSavePath(entry.file);
       } catch { item.cancel(); toast('无法保存到下载目录，请在设置中更换位置。'); }
     }
 }
@@ -873,8 +893,22 @@ async function requestClose() {
   });
   popovers = new Popovers(window, path.join(__dirname, 'preload.bundle.js'), snapshot, sendState);
   modalLayer = new ModalLayer(window, layout);
+  downloadNotices = new DownloadNotices(window, { changed: sendState, blocked: () => closing || modalOpen || !!prompts?.active || !!popovers?.kind,
+    dark: () => nativeTheme.shouldUseDarkColors,
+    appearance: () => store.data.settings.appearance,
+    action: async (action, entry) => {
+      if (action === 'downloads') { contextMenus.close(true); await popovers.open('downloads'); return; }
+      await fileIdentity(entry.file);
+      if (action === 'open') {
+        if (entry.managed) await markDownloadedFile(entry.file, entry.url);
+        const error = await shell.openPath(entry.file); if (error) throw new Error('无法打开文件：' + error);
+      } else if (action === 'reveal') shell.showItemInFolder(entry.file);
+    },
+  });
+  popovers.onDownloadsOpen = () => downloadNotices.clear();
   controller = { window, tabs, groups, isPrivate, webSession, popovers, createTab, activateTab, closeTab, navigate, openExtensions, queueState, sendState, notice: toast, updateAppearance: updateAppearanceWindows, nativeDownload: handleNativeDownload, sessionLayout, tabEvent, handleShortcut, receiveTab, detachTab, moveTab, close: requestClose,
     allowedURL: url => isWebUrl(url) || isViewSourceUrl(url) || extensionManager?.allowedURL(url), canReceiveTab: () => !closing && !modalOpen && !prompts?.active && tabs.size < 30,
+    downloadNotice: entry => downloadNotices.add(entry), downloadForeground: () => downloadNotices.foreground(),
     get compatibility() { return compatibility; },
     get activeId() { return activeId; }, get registeringTab() { return registeringTab; }, get prompts() { return prompts; } };
   browsers.add(controller);
@@ -1135,6 +1169,7 @@ async function requestClose() {
       case 'update-settings': {
         if (!payload || typeof payload !== 'object') break;
         const updates = { ...payload };
+        if (isPrivate) delete updates.autoUpdate;
         delete updates.downloadPath;
         if (typeof updates.homePage === 'string' && updates.homePage.trim()) {
           const resolved = resolveWebsite(updates.homePage.trim());
@@ -1143,6 +1178,32 @@ async function requestClose() {
         }
         applySettings({ ...store.data.settings, ...updates });
         return store.data.settings;
+      }
+      case 'app-update-check':
+        if (isPrivate) throw new Error('请在普通窗口中检查浏览器更新');
+        return sharedUpdater.check();
+      case 'app-update-download':
+        if (isPrivate) throw new Error('请在普通窗口中下载浏览器更新');
+        return sharedUpdater.download();
+      case 'app-update-install': {
+        if (isPrivate || updateInstalling) return;
+        const confirmed = await prompts.ask({ kind: 'app-update', title: '重启并更新 luna', message: '安装 Luna ' + (sharedUpdater.snapshot().version || '') + ' 并重新打开浏览器？',
+          detail: '将关闭所有窗口。多标签页和未完成下载仍会按当前设置确认保存。', confirmLabel: '重启并更新' });
+        if (!confirmed.accepted || updateInstalling) return;
+        const installation = await sharedUpdater.prepare();
+        updateInstalling = true;
+        try {
+          for (const browser of [...browsers]) {
+            if (!await browser.close()) { await installation.cancel(); sharedUpdater.change({ phase: 'ready' }); return; }
+          }
+          await installation.launch(); sharedUpdater.change({ phase: 'installing' });
+          quitting = true; app.quit();
+        } catch (error) {
+          await installation.cancel().catch(() => {}); sharedUpdater.change({ phase: 'ready', error: error.message });
+          if (!browsers.size) await createBrowser();
+          throw error;
+        } finally { updateInstalling = false; }
+        return;
       }
       case 'appearance-update': {
         const appearance = patchAppearance(store.data.settings.appearance, payload);
@@ -1269,15 +1330,18 @@ async function requestClose() {
       case 'download-action': {
         const entry = downloadManager.jobs.get(payload?.id) || downloads.get(payload?.id) || downloadHistory.records.get(payload?.id);
         if (!entry) break;
+        if (entry.deleting) return;
         if (payload.action === 'remove' || payload.action === 'delete-file') {
           if (payload.action === 'delete-file') {
             if (entry.status !== 'completed') throw new Error('只能删除已完成下载的文件');
-            const identity = await fileIdentity(entry.file).catch(error => { throw new Error(error.code === 'ENOENT' ? '文件已不存在，可移除这条记录' : error.message); });
-            const confirmed = await prompts.ask({ kind: 'download-delete-file', title: '删除下载文件', message: '将“' + entry.name + '”移入回收站并移除记录？', detail: identity.real, confirmLabel: '删除文件' });
-            if (!confirmed.accepted) return;
-            const current = await fileIdentity(entry.file);
-            if (JSON.stringify(identity) !== JSON.stringify(current)) throw new Error('文件已变化，请重新确认删除');
-            await shell.trashItem(current.real);
+            entry.deleting = true; entry.error = ''; sendState();
+            try {
+              const identity = await fileIdentity(entry.file).catch(error => { throw new Error(error.code === 'ENOENT' ? '文件已不存在，可移除这条记录' : error.message); });
+              const confirmed = await prompts.ask({ kind: 'download-delete-file', title: '删除下载文件', message: '将“' + entry.name + '”移入回收站并移除记录？', detail: identity.real, confirmLabel: '删除文件' });
+              if (!confirmed.accepted) return;
+              await trashFile(identity, { executable: process.execPath, appPath: app.isPackaged ? null : app.getAppPath() });
+            } catch (error) { entry.error = '删除失败：' + error.message; throw error; }
+            finally { entry.deleting = false; sendState(); }
           } else if (!entry.historical && !['completed', 'cancelled', 'interrupted'].includes(entry.status) || downloadManager.jobs.has(entry.id) && entry.status === 'interrupted') {
             const confirmed = await prompts.ask({ kind: 'download-remove', title: '移除下载', message: '取消此下载并移除记录？', detail: entry.name, confirmLabel: '取消并移除' }); if (!confirmed.accepted) return;
           }
@@ -1339,6 +1403,14 @@ app.whenReady().then(async () => {
   if (!singleInstance) return;
   cleanupPrivateDirectories(privateSessionsRoot);
   sharedStore = new Store(app.getPath('userData'));
+  const updateDirectory = path.join(app.getPath('userData'), 'updates');
+  sharedUpdater = new AppUpdates({ directory: updateDirectory, version: app.getVersion(),
+    supported: app.isPackaged && (process.platform === 'win32' && process.arch === 'x64' || process.platform === 'darwin' && process.arch === 'arm64'),
+    fetch: (url, options) => session.fromPartition('luna-app-updates', { cache: false }).fetch(url, options),
+    prepareInstall: options => prepareUpdate({ ...options, directory: updateDirectory }),
+  });
+  sharedUpdater.on('change', () => { for (const browser of browsers) browser.sendState(); });
+  sharedUpdater.on('ready', update => { for (const browser of browsers) if (!browser.isPrivate) browser.notice('Luna ' + update.version + ' 已下载，可在设置 → 关于 luna 中重启更新'); });
   sharedImporter = new BrowserImporter({ helper: process.platform === 'win32' ? app.isPackaged ? path.join(process.resourcesPath, 'luna-browser-import.exe') : path.join(__dirname, 'native', 'luna-browser-import.exe') : undefined });
   sharedAssets = new AppearanceAssets(app.getPath('userData'), session.defaultSession);
   await sharedAssets.cleanup(sharedStore.data.settings.appearance);
@@ -1353,8 +1425,9 @@ app.whenReady().then(async () => {
   if (saved.length) for (const layout of saved) await createBrowser({ layout });
   else await createBrowser();
   const browser = focusedBrowser(); for (const url of launchURLs.splice(0, 20)) browser?.createTab(url);
+  sharedUpdater.configure(sharedStore.data.settings.autoUpdate);
 }).catch(error => { console.error(error); app.quit(); });
-app.on('activate', () => { if (app.isReady() && !browsers.size) createBrowser().catch(console.error); });
+app.on('activate', () => { if (app.isReady() && !browsers.size && !updateInstalling) createBrowser().catch(console.error); });
 app.on('before-quit', event => {
   if (process.platform !== 'darwin' || quitting || !browsers.size) return;
   event.preventDefault(); if (quitRequest) return;
@@ -1363,4 +1436,5 @@ app.on('before-quit', event => {
     quitting = true; app.quit();
   })().finally(() => { quitRequest = null; });
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('will-quit', () => sharedUpdater?.dispose());
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !updateInstalling) app.quit(); });

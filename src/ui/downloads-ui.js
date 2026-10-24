@@ -44,7 +44,9 @@
         if (row.root.parentElement !== list) list.insertBefore(row.root, [...list.children].find(child => Number(child.dataset.created) < entry.createdAt) || null);
         row.name.textContent = entry.name;
         const percent = entry.total ? (entry.received * 100 / entry.total).toFixed(1) : null;
-        row.status.textContent = (statuses[entry.status] || entry.status) + ' · ' + bytes(entry.received) + (entry.total ? ' / ' + bytes(entry.total) + ' (' + percent + '%)' : '') + (entry.status === 'progressing' && entry.speed ? ' · ' + bytes(entry.speed) + '/s' : '');
+         row.status.textContent = (statuses[entry.status] || entry.status) + ' · ' + bytes(entry.received) + (entry.total ? ' / ' + bytes(entry.total) + ' (' + percent + '%)' : '') + (entry.status === 'progressing' && entry.speed ? ' · ' + bytes(entry.speed) + '/s' : '');
+         if (entry.deleting) row.status.textContent = '正在移入回收站…';
+         row.root.setAttribute('aria-busy', String(entry.deleting === true));
         if (row.iconSource !== entry.icon) { setImage(row.icon, entry.icon, 'file'); row.iconSource = entry.icon; }
         row.progress.max = entry.total || 1;
         if (entry.total) row.progress.value = entry.received; else row.progress.removeAttribute('value');
@@ -57,7 +59,9 @@
         row.buttons.cancel.hidden = ['completed', 'cancelled', 'merging'].includes(entry.status);
          row.buttons.open.hidden = row.buttons.reveal.hidden = entry.status !== 'completed';
          row.buttons['delete-file'].hidden = entry.status !== 'completed';
-         row.buttons.remove.disabled = entry.status === 'merging';
+          row.buttons.remove.disabled = entry.status === 'merging';
+          for (const button of Object.values(row.buttons)) button.disabled = entry.deleting === true || button === row.buttons.remove && entry.status === 'merging';
+          row.buttons['delete-file'].textContent = entry.deleting ? '正在删除…' : '删除文件';
          if (entry.historical) { row.buttons.pause.hidden = row.buttons.resume.hidden = row.buttons.cancel.hidden = true; row.completion.disabled = true; }
         row.url.textContent = entry.url; row.url.title = entry.url;
         row.stats.status.textContent = statuses[entry.status] || entry.status;

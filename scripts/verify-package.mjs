@@ -19,6 +19,9 @@ const privateSupported = packageFiles.includes('/src/private-protection.js');
 const essentialsSupported = packageFiles.includes('/src/site-permissions.js');
 const modalSupported = packageFiles.includes('/src/modal-layer.js');
 const importSupported = packageFiles.includes('/src/browser-import.js');
+const updateSupported = packageFiles.includes('/src/app-updates.js');
+const deleteWorkerSupported = packageFiles.includes('/src/trash-file.js');
+const downloadNoticeSupported = packageFiles.includes('/src/download-notices.js');
 const zipFile = path.join(path.dirname(directory), `luna-${metadata.version}-win32-x64.zip`);
 const zip = new AdmZip(zipFile);
 assert.equal(zip.test(), true, 'ZIP CRC checks pass for every entry');
@@ -37,6 +40,7 @@ assert.ok(packageFiles.includes('/LICENSE'), 'application GPL license is retaine
 assert.ok(packageFiles.includes('/node_modules/electron-chrome-extensions/LICENSE-GPL'), 'GPL license is retained');
 assert.ok(packageFiles.includes('/THIRD_PARTY_NOTICES.md'), 'third-party notices are retained');
 assert.equal(packageFiles.some(file => file.startsWith('/node_modules/@types/')), false, 'development-only type packages are excluded');
+assert.equal(packageFiles.some(file => /^\/session-[^/]+\.md$/.test(file)), false, 'local session exports are excluded');
 assert.equal(packageFiles.some(file => /\/assets\/[^/]+\.aip$|\/assets\/Luna-(?:SetupFiles|cache)(?:\/|$)/i.test(file)), false, 'installer projects, outputs and caches are excluded');
 const visibility = JSON.parse(fs.readFileSync('artifacts/ie-visibility-result.json', 'utf8'));
 assert.equal(visibility.version, metadata.version);
@@ -72,6 +76,23 @@ if (importSupported) {
   assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
   assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'import, search and file deletion were checked after packaging');
 }
+if (updateSupported) {
+  for (const name of ['/src/update-installer.js', '/src/download-notifications.js']) assert.ok(packageFiles.includes(name));
+  const result = JSON.parse(fs.readFileSync('artifacts/app-updates-result.json', 'utf8'));
+  assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
+  assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'app updates were checked after packaging');
+}
+if (deleteWorkerSupported) {
+  const result = JSON.parse(fs.readFileSync('artifacts/download-delete-result.json', 'utf8'));
+  assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
+  assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'isolated file deletion was checked after packaging');
+}
+if (downloadNoticeSupported) {
+  for (const name of ['/src/download-notice-preload.js', '/src/ui/download-notice.html', '/src/ui/download-notice.css', '/src/ui/download-notice.js']) assert.ok(packageFiles.includes(name));
+  const result = JSON.parse(fs.readFileSync('artifacts/download-notifications-result.json', 'utf8'));
+  assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
+  assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'download completion notifications were checked after packaging');
+}
 assert.ok(Date.parse(visibility.testedAt) >= Date.parse(report.testedAt), 'IE visibility was checked after packaging');
 if (report.baseline && path.resolve(report.baseline.directory) !== directory && fs.existsSync(path.join(report.baseline.directory, 'resources/app.asar'))) {
   report.baseline = { ...measurePackage(report.baseline.directory), ...await diskSize(report.baseline.directory) };
@@ -97,6 +118,9 @@ if (privateSupported) {
 if (essentialsSupported) { report.validation.checks.push('website authorization, tab/view transfers, bookmark HTML migration, external URL dispatch and isolated Windows registration'); report.validation.artifacts.push('essentials-result.json'); }
 if (modalSupported) { report.validation.checks.push('real desktop live Chromium/IE backgrounds below modal dialogs, click isolation and nested form input'); report.validation.artifacts.push('modal-background-result.json'); }
 if (importSupported) { report.validation.checks.push('read-only browser import, DPAPI/AES-GCM password migration, search-first suggestions and confirmed recycle-bin deletion'); report.validation.artifacts.push('import-search-result.json'); }
+if (updateSupported) { report.validation.checks.push('update settings, verified download and retry, confirmed restart and independent Windows installer with backup'); report.validation.artifacts.push('app-updates-result.json'); }
+if (deleteWorkerSupported) { report.validation.checks.push('isolated slow recycle keeps browser responsive; red actions, cancellation, duplicate guard and error recovery'); report.validation.artifacts.push('download-delete-result.json'); }
+if (downloadNoticeSupported) { report.validation.checks.push('owned download completion card above live webpages, unread badge, foreground/background behavior, actions and private isolation'); report.validation.artifacts.push('download-notifications-result.json'); }
 fs.writeFileSync(resultFile, JSON.stringify(reports, null, 2));
 console.log(JSON.stringify({
   version: metadata.version,

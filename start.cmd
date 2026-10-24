@@ -2,6 +2,10 @@
 cd /d "%~dp0"
 if /i "%~1"=="beta" goto beta
 :release
+if exist "dist\release\launch.cmd" (
+  call "dist\release\launch.cmd"
+  exit /b
+)
 if exist "dist\release\luna-win32-x64\luna.exe" (
   start "" "dist\release\luna-win32-x64\luna.exe"
 ) else if /i "%~1"=="release" (
@@ -12,6 +16,10 @@ if exist "dist\release\luna-win32-x64\luna.exe" (
 )
 exit /b
 :beta
+if exist "dist\beta\launch.cmd" (
+  call "dist\beta\launch.cmd"
+  exit /b
+)
 if exist "dist\beta\luna-win32-x64\luna.exe" (
   start "" "dist\beta\luna-win32-x64\luna.exe"
 ) else (

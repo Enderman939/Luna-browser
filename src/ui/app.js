@@ -176,6 +176,11 @@ function render(newState) {
   $('#extension-actions').setAttribute('tab', String(tab.webContentsId));
   window.extensionMenu.update(state);
   $('#downloads-button').classList.toggle('active', state.popover === 'downloads');
+  const completed = state.completedDownloads || 0;
+  $('#downloads-button').classList.toggle('download-completed', completed > 0);
+  $('#downloads-button').dataset.completed = String(completed);
+  $('#downloads-button').title = completed ? completed + ' 个下载已完成，点击查看' : window.lunaShortcut('下载 (Ctrl+J)');
+  $('#downloads-button').setAttribute('aria-label', completed ? '下载，' + completed + ' 个已完成' : '下载');
   $('#history-button').classList.toggle('active', state.popover === 'history');
   $('#panel-button').classList.toggle('active', state.popover === 'bookmarks');
   $('#menu-button').classList.toggle('active', state.popover === 'browser');
@@ -313,6 +318,22 @@ function renderSettings() {
   $('#history-size').textContent = state.history.length + ' 条记录';
   $('#app-version').textContent = '版本 ' + state.version;
   $('#chromium-version').textContent = 'Chromium ' + state.chromium;
+  const update = state.update || { phase: 'unsupported' };
+  const busy = ['checking', 'downloading', 'verifying', 'preparing', 'installing'].includes(update.phase);
+  const updateLabels = {
+    idle: '尚未检查更新', unsupported: '自动更新在正式成品中可用', checking: '正在检查 GitHub Release…', current: '当前已是最新正式版',
+    available: '发现新版本 ' + update.version, downloading: '正在下载 ' + update.version + (update.total ? ' · ' + Math.floor(update.received * 100 / update.total) + '%' : ''),
+    verifying: '正在校验更新包…', ready: '版本 ' + update.version + ' 已下载，重启后安装', preparing: '正在准备安装…', installing: '正在重启更新…', error: '更新未完成，可重试',
+  };
+  $('#app-update-status').textContent = state.private ? '请在普通窗口中管理浏览器更新' : updateLabels[update.phase] || '尚未检查更新';
+  $('#app-update-error').textContent = update.error || ''; $('#app-update-error').hidden = !update.error;
+  $('#app-update-progress').hidden = update.phase !== 'downloading';
+  $('#app-update-progress').value = update.total ? Math.floor(update.received * 100 / update.total) : 0;
+  $('#app-update-check').disabled = state.private || !update.supported || busy;
+  $('#app-update-download').hidden = !['available', 'error'].includes(update.phase) || !update.version;
+  $('#app-update-download').disabled = state.private || busy;
+  $('#app-update-install').hidden = update.phase !== 'ready'; $('#app-update-install').disabled = state.private || busy;
+  $('#setting-autoUpdate').disabled = state.private;
   if (!state.private && !window.popoverHost && (settingsSection === 'passwords' || query && query.includes('密码'))) window.passwordUI.refresh();
 }
 function renderPanel() {
@@ -439,6 +460,9 @@ $('#homepage-form').onsubmit = async event => {
 };
 $('#choose-download-path').onclick = () => command('choose-download-path');
 $('#reset-download-path').onclick = () => command('reset-download-path');
+$('#app-update-check').onclick = () => command('app-update-check');
+$('#app-update-download').onclick = () => command('app-update-download');
+$('#app-update-install').onclick = () => command('app-update-install');
 $('#settings-clear-history').onclick = () => command('clear-history');
 $('#clear-cache').onclick = () => command('clear-cache');
 $('#reset-settings').onclick = () => command('reset-settings');

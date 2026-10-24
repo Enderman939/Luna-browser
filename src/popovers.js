@@ -29,6 +29,7 @@ class Popovers {
   }
   async open(kind, anchor) {
     if (!['extensions', 'browser', 'downloads', 'history', 'bookmarks', 'passwords', 'address'].includes(kind)) throw new Error('Invalid popover');
+    if (kind === 'downloads') this.onDownloadsOpen?.();
     if (kind === 'address' && this.kind === kind && this.window && !this.closing) { this.anchor = anchor; this.position(); this.state(this.getState()); return; }
     if (this.kind === kind && this.window && !this.closing && kind === 'passwords' && anchor?.field && this.anchor?.field) {
       this.anchor = anchor; this.position(); this.state(this.getState()); this.changed(); return;

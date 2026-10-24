@@ -40,6 +40,11 @@ test('settings reject invalid values and support existing profiles', () => {
   assert.deepEqual(sanitizeSettings({ theme: 'green', startup: 'other', searchEngine: '__proto__', showHome: 'false', homePage: 'javascript:bad' }), DEFAULT_SETTINGS);
   const settings = sanitizeSettings({ theme: 'dark', searchEngine: 'google', showBookmarks: false, homePage: 'https://example.com/' });
   assert.equal(settings.theme, 'dark'); assert.equal(settings.showBookmarks, false); assert.equal(settings.homePage, 'https://example.com/');
+  const migrated = sanitizeSettings({ askDownload: true });
+  assert.equal(Object.hasOwn(migrated, 'askDownload'), false);
+  assert.equal(migrated.downloadNotifications, true); assert.equal(migrated.autoUpdate, true);
+  assert.equal(sanitizeSettings({ downloadNotifications: false, autoUpdate: false }).downloadNotifications, false);
+  assert.equal(sanitizeSettings({ autoUpdate: false }).autoUpdate, false);
 });
 test('recent websites deduplicate origins and put manual shortcuts first', () => {
   const history = [{ url: 'https://one.example/a', title: 'Latest' }, { url: 'https://one.example/b', title: 'Older' }, { url: 'https://two.example', title: 'Second' }, { url: 'file:///bad' }];
