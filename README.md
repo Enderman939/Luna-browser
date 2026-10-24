@@ -2,10 +2,16 @@
 
 一个使用 Electron / Chromium 加载真实网页的桌面浏览器，提供 Windows x64 成品，以及 macOS Apple Silicon（M 系列、arm64）适配与构建流程。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前版本：**1.1.1**，使用 **Electron 44.7.2**。GitHub 已发布版本以 Releases 页面为准。Windows 版支持 Windows 10 及以上的 x64 系统；Mac 版原生构建仍待验证。
+当前版本：**1.1.2**，使用 **Electron 44.7.2**。该版本的 GitHub Release 标题为 **1.1.1-icon fix**；1.1.2 版本号让现有自动更新器可以正常检测到它。Windows 版支持 Windows 10 及以上的 x64 系统；Mac 版原生构建仍待验证。
 
 双击 `start.cmd` 启动本地正式成品。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
-旧程序仍在运行时，可将新成品构建到 `dist/release/版本号`。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品；当前 1.1.1 位于 `dist/release/1.1.1`。退出旧版后再启动即可切换。
+旧程序仍在运行时，可将新成品构建到 `dist/release/版本号`。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品；当前本地构建位于 `dist/release/1.1.2`。退出旧版后再启动即可切换。
+
+### 1.1.2 修复
+
+- Windows 应用图标采用标准 ICO 格式，包含 16、24、32、48、64、128 和 256 像素图层，让任务栏、标题栏和快捷方式使用合适尺寸。
+
+本地 Windows 成品位于 `dist/release/1.1.2`；任务栏图标修复已作为 **1.1.1-icon fix** 发布。
 
 ### 1.1.1 更新内容
 
@@ -29,13 +35,13 @@
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.1.1-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 ZIP 位于 `dist/release/1.1.1`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.1.2-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 ZIP 位于 `dist/release/1.1.2`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
 
 **M 系列 Mac**：适配代码和原生构建流程已提供，尚待 macOS 原生构建与验证完成后交付。构建输出 `luna-版本号-darwin-arm64.dmg` 和 ZIP；DMG 打开后把 `luna.app` 拖入 **Applications／应用程序**，也可解压 ZIP 后移动整个 `luna.app`。运行不需要 Node.js 或 Rosetta。
 
 Mac 包采用 ad-hoc 本地签名，尚未通过 Apple Developer ID 签名和公证。首次打开若被 macOS 拦截，请在 **系统设置 → 隐私与安全性 → 仍要打开** 中确认。详细平台差异、构建与验证见 [Apple Silicon 版说明](docs/macos-arm64.md)。Mac 的独立校验文件为 `SHA256SUMS-macos-arm64.txt`。
 
-Windows 成品和 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.1.1-win32-x64.zip -Algorithm SHA256` 校验文件。
+Windows 成品和 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.1.2-win32-x64.zip -Algorithm SHA256` 校验文件。
 
 ## 启动
 
@@ -45,7 +51,7 @@ Windows 成品和 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-F
 
 ```text
 dist/
-  release/  正式版，目前为 1.1.1
+  release/  正式版，目前为 1.1.2
   beta/     本地体验版（如有）
 ```
 

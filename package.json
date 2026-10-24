@@ -1,6 +1,6 @@
 {
   "name": "luna-browser",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "luna 桌面浏览器",
   "main": "src/main.js",
   "author": "Enderman939",
@@ -16,7 +16,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js tests/import-search.test.js tests/platform.test.js tests/app-updates.test.js",
+    "test": "node --test tests/core.test.js tests/downloads.test.js tests/extensions.test.js tests/privacy.test.js tests/webstore.test.js tests/context-menu.test.js tests/security.test.js tests/appearance.test.js tests/passwords.test.js tests/workspace.test.js tests/compatibility.test.js tests/private-protection.test.js tests/essentials.test.js tests/import-search.test.js tests/platform.test.js tests/app-updates.test.js tests/icon-package.test.js",
     "pretest:essentials": "npm run prepare:ui",
     "test:essentials": "node tests/essentials-smoke.js",
     "pretest:modal-background": "npm run prepare:ui && npm run build:ie",

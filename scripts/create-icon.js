@@ -19,14 +19,21 @@ app.whenReady().then(async () => {
   await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<html><body style="margin:0;overflow:hidden;background:transparent">' + svg + '</body></html>'));
   await new Promise(resolve => setTimeout(resolve, 300));
   const image = await window.webContents.capturePage();
-  const png = image.resize({ width: 256, height: 256 }).toPNG();
+  const pngs = [16, 24, 32, 48, 64, 128, 256].map(size => image.resize({ width: size, height: size }).toPNG());
+  const png = pngs.at(-1);
   fs.writeFileSync(path.join(assets, 'app.png'), png);
-  // ICO files can contain a PNG image; 0 in the dimensions means 256 px.
-  const header = Buffer.alloc(22);
-  header.writeUInt16LE(1, 2); header.writeUInt16LE(1, 4);
-  header.writeUInt16LE(1, 10); header.writeUInt16LE(32, 12);
-  header.writeUInt32LE(png.length, 14); header.writeUInt32LE(22, 18);
-  fs.writeFileSync(path.join(assets, 'app.ico'), Buffer.concat([header, png]));
+  // Windows chooses the closest image layer for the taskbar, title bar and
+  // shortcuts. Keep standard PNG-backed layers instead of scaling one 256px
+  // image down for every surface.
+  const directory = Buffer.alloc(6); directory.writeUInt16LE(0, 0); directory.writeUInt16LE(1, 2); directory.writeUInt16LE(pngs.length, 4);
+  const entries = [], data = []; let offset = 6 + pngs.length * 16;
+  for (const [index, size] of [16, 24, 32, 48, 64, 128, 256].entries()) {
+    const value = pngs[index], entry = Buffer.alloc(16);
+    entry[0] = size === 256 ? 0 : size; entry[1] = size === 256 ? 0 : size; entry[2] = 0; entry[3] = 0;
+    entry.writeUInt16LE(1, 4); entry.writeUInt16LE(32, 6); entry.writeUInt32LE(value.length, 8); entry.writeUInt32LE(offset, 12);
+    entries.push(entry); data.push(value); offset += value.length;
+  }
+  fs.writeFileSync(path.join(assets, 'app.ico'), Buffer.concat([directory, ...entries, ...data]));
   console.log('Generated luna PNG / ICO from mark.svg');
   window.destroy();
   app.quit();
