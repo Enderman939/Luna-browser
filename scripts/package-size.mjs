@@ -43,6 +43,18 @@ export function measurePackage(directory) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const channel = fs.existsSync('dist/beta/luna-win32-x64/luna.exe') ? 'beta' : 'release';
-  console.log(JSON.stringify(measurePackage(process.argv[2] || `dist/${channel}/luna-win32-x64`), null, 2));
+  const metadata = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const channel = metadata.version.includes('-') ? 'beta' : 'release';
+  let directory = process.argv[2];
+  if (!directory) {
+    const channelRoot = path.resolve('dist', channel);
+    const direct = path.join(channelRoot, 'luna-win32-x64');
+    if (fs.existsSync(direct)) directory = direct;
+    else {
+      const candidates = fs.readdirSync(channelRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && fs.existsSync(path.join(channelRoot, entry.name, 'luna-win32-x64'))).map(entry => entry.name).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+      if (!candidates.length) throw new Error('找不到 Windows x64 成品目录，请先运行构建');
+      directory = path.join(channelRoot, candidates[0], 'luna-win32-x64');
+    }
+  }
+  console.log(JSON.stringify(measurePackage(directory), null, 2));
 }

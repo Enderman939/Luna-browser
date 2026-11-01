@@ -9,7 +9,17 @@ import { diskSize } from './compact-package.mjs';
 const require = createRequire(import.meta.url);
 const AdmZip = require('adm-zip');
 const channel = require('../package.json').version.includes('-') ? 'beta' : 'release';
-const directory = path.resolve(process.argv[2] || `dist/${channel}/luna-win32-x64`);
+function packageDirectory() {
+  if (process.argv[2]) return path.resolve(process.argv[2]);
+  const root = path.resolve('dist', channel), direct = path.join(root, 'luna-win32-x64');
+  const versioned = path.join(root, metadata.version, 'luna-win32-x64');
+  if (fs.existsSync(path.join(versioned, 'luna.exe'))) return versioned;
+  if (fs.existsSync(path.join(direct, 'luna.exe'))) return direct;
+  const candidates = fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, 'luna-win32-x64', 'luna.exe'))).map(entry => entry.name).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  if (!candidates.length) throw new Error('找不到 Windows x64 成品目录，请先运行构建');
+  return path.join(root, candidates[0], 'luna-win32-x64');
+}
+const directory = packageDirectory();
 const archive = path.join(directory, 'resources/app.asar');
 const metadata = JSON.parse(asar.extractFile(archive, 'package.json').toString());
 const packageFiles = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'));
@@ -22,13 +32,15 @@ const importSupported = packageFiles.includes('/src/browser-import.js');
 const updateSupported = packageFiles.includes('/src/app-updates.js');
 const deleteWorkerSupported = packageFiles.includes('/src/trash-file.js');
 const downloadNoticeSupported = packageFiles.includes('/src/download-notices.js');
+const backupSupported = packageFiles.includes('/src/browser-backup.js');
+const pwaSupported = packageFiles.includes('/src/pwa-apps.js');
 const zipFile = path.join(path.dirname(directory), `luna-${metadata.version}-win32-x64.zip`);
 const zip = new AdmZip(zipFile);
 assert.equal(zip.test(), true, 'ZIP CRC checks pass for every entry');
 const prefix = path.basename(directory) + '/';
 const entries = new Set(zip.getEntries().map(entry => entry.entryName));
 const required = ['luna.exe', 'resources/app.asar', 'resources/luna-ie-host.exe',
-  'LICENSE', 'LICENSES.chromium.html', 'ffmpeg.dll', 'dxcompiler.dll', 'dxil.dll',
+  'LICENSE', 'LICENSES.chromium.html', 'ffmpeg.dll', 'dxcompiler.dll', 'dxil.dll', 'resources/app.ico',
   'd3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json',
   'vulkan-1.dll', 'icudtl.dat', 'resources.pak', 'v8_context_snapshot.bin',
   'snapshot_blob.bin', 'locales/en-US.pak', 'locales/zh-CN.pak', 'locales/zh-TW.pak'];
@@ -93,6 +105,10 @@ if (downloadNoticeSupported) {
   assert.equal(result.passed, true); assert.equal(result.version, metadata.version);
   assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'download completion notifications were checked after packaging');
 }
+if (backupSupported || pwaSupported) {
+  const result = JSON.parse(fs.readFileSync('artifacts/backup-pwa-result.json', 'utf8'));
+  assert.equal(result.passed, true); assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt), 'backup and PWA features were checked after packaging');
+}
 assert.ok(Date.parse(visibility.testedAt) >= Date.parse(report.testedAt), 'IE visibility was checked after packaging');
 if (report.baseline && path.resolve(report.baseline.directory) !== directory && fs.existsSync(path.join(report.baseline.directory, 'resources/app.asar'))) {
   report.baseline = { ...measurePackage(report.baseline.directory), ...await diskSize(report.baseline.directory) };
@@ -121,6 +137,7 @@ if (importSupported) { report.validation.checks.push('read-only browser import, 
 if (updateSupported) { report.validation.checks.push('update settings, verified download and retry, confirmed restart and independent Windows installer with backup'); report.validation.artifacts.push('app-updates-result.json'); }
 if (deleteWorkerSupported) { report.validation.checks.push('isolated slow recycle keeps browser responsive; red actions, cancellation, duplicate guard and error recovery'); report.validation.artifacts.push('download-delete-result.json'); }
 if (downloadNoticeSupported) { report.validation.checks.push('owned download completion card above live webpages, unread badge, foreground/background behavior, actions and private isolation'); report.validation.artifacts.push('download-notifications-result.json'); }
+if (backupSupported || pwaSupported) { report.validation.checks.push('encrypted browser backups, permission center revocation and isolated manifest-based website applications'); report.validation.artifacts.push('backup-pwa-result.json'); }
 fs.writeFileSync(resultFile, JSON.stringify(reports, null, 2));
 console.log(JSON.stringify({
   version: metadata.version,

@@ -16,7 +16,7 @@
   window.popoverHost = { kind, close: () => window.browser.command('popover-close').catch(() => {}), initialized: () => {
     if (initialized) { if (kind === 'address') requestAnimationFrame(fit); return; } initialized = true;
     const node = document.querySelector(targets[kind]);
-    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) node.animate([{ opacity: 0, transform: 'translateY(-6px) scale(.975)' }, { opacity: 1, transform: 'translateY(0) scale(1)' }], { duration: 170, easing: 'cubic-bezier(.2,.85,.25,1)' });
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) node.animate([{ opacity: 0, transform: 'translateY(-4px) scale(.99)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.16,1,.3,1)' });
     new ResizeObserver(fit).observe(node); requestAnimationFrame(fit);
   } };
   window.browser.onPopoverClose(() => {

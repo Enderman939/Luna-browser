@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="browser-menu.css">
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="essentials.css">
+  <link rel="stylesheet" href="polish.css">
 </head>
 <body>
   <header class="chrome">
@@ -77,6 +78,7 @@
           <button data-settings-section="search"><span data-icon="search"></span>搜索引擎</button>
           <button data-settings-section="appearance"><span data-icon="palette"></span>外观</button>
           <button data-settings-section="startup"><span data-icon="power"></span>启动与主页</button>
+          <button data-settings-section="apps"><span data-icon="globe"></span>网站应用</button>
           <button data-settings-section="import"><span data-icon="folder"></span>导入浏览资料</button>
           <button data-settings-section="downloads"><span data-icon="download"></span>下载</button>
           <button data-settings-section="privacy"><span data-icon="shield"></span>隐私与数据</button>
@@ -96,6 +98,8 @@
             <h3>从其他浏览器导入</h3><div class="settings-card"><div class="setting-row setting-row-stacked"><span class="setting-label">继续使用你的浏览资料<span class="setting-detail">自动发现本机浏览器配置，选择要导入的数据。原浏览器的数据会保留。</span></span><button id="browser-import-open" class="primary-button">选择浏览器与数据</button></div><div class="setting-row"><span class="setting-label">密码 CSV<span class="setting-detail">来源浏览器无法直接解密时，可导出 CSV 后导入。</span></span><button id="browser-import-csv" class="secondary-button">导入密码 CSV</button></div></div>
           </section>
           <section class="settings-group" data-group="appearance" data-keywords="外观 主题 深色 浅色 系统 收藏栏 主页 快捷方式 最近浏览">
+            <div class="appearance-intro"><div><span class="appearance-kicker">YOUR SPACE, YOUR LUNA</span><h3>让 Luna 更像你</h3><p>从一套配色开始，再微调喜欢的细节。</p></div><span class="appearance-saved" role="status">自动保存</span></div>
+            <div id="appearance-presets" class="appearance-presets" role="group" aria-label="主题配色预设"></div>
             <h3>主题与布局</h3>
             <div class="settings-card">
               <label class="setting-row"><span class="setting-label">主题</span><select id="setting-theme" data-setting="theme"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
@@ -143,25 +147,40 @@
               <div class="setting-row"><span class="setting-label">默认浏览器<span id="default-browser-status" class="setting-detail">点击按钮注册 luna，并在 Windows 设置中选择</span></span><button id="default-browser-register" class="secondary-button">设为默认浏览器</button></div>
             </div>
           </section>
-          <section class="settings-group" data-group="downloads" data-keywords="下载 文件 保存 位置 目录 完成 提醒 通知">
+          <section class="settings-group" data-group="apps" data-keywords="网站 应用 PWA 安装 独立窗口 启动">
+            <h3>已安装的网站应用</h3><p class="essentials-note">在网站信息面板中安装应用。每个应用使用独立的网站存储；敏感权限默认关闭。</p>
+            <div id="installed-apps-list" class="settings-card installed-apps-list"></div>
+          </section>
+           <section class="settings-group" data-group="downloads" data-keywords="下载 文件 保存 位置 目录 完成 提醒 通知 失败 自动重试 次数 间隔">
             <h3>下载</h3>
             <div class="settings-card">
               <div class="setting-row setting-row-stacked"><span>下载位置</span><div class="download-location"><span id="download-location"></span><button class="secondary-button" id="choose-download-path">更改</button></div><button class="text-button" id="reset-download-path">使用默认下载位置</button></div>
               <label class="setting-row"><span class="setting-label">下载完成后提醒<span class="setting-detail">显示完成卡片和下载角标，后台发送系统通知；无痕仅在窗口内提醒</span></span><input type="checkbox" class="switch" id="setting-downloadNotifications" data-setting="downloadNotifications"></label>
               <label class="setting-row"><span class="setting-label">使用多线程下载<span class="setting-detail">不支持分段的网站使用单连接</span></span><input type="checkbox" class="switch" id="setting-parallelDownloads" data-setting="parallelDownloads"></label>
               <label class="setting-row"><span class="setting-label">每个下载的线程数</span><select id="setting-downloadThreads" data-setting="downloadThreads"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select></label>
+              <label class="setting-row"><span class="setting-label">同时下载的任务数<span class="setting-detail">超出数量的下载会排队；暂停的下载不占用任务位</span></span><select id="setting-downloadConcurrency" data-setting="downloadConcurrency"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="8">8</option></select></label>
+              <label class="setting-row"><span class="setting-label">失败后自动重试<span class="setting-detail">网络中断后继续下载；暂停、取消和磁盘错误不会触发重试</span></span><select id="setting-downloadRetryAttempts" data-setting="downloadRetryAttempts"><option value="0">关闭</option><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次（默认）</option><option value="5">5 次</option><option value="10">10 次</option></select></label>
+              <label class="setting-row"><span class="setting-label">重试间隔</span><select id="setting-downloadRetryDelay" data-setting="downloadRetryDelay"><option value="1">1 秒</option><option value="3">3 秒</option><option value="5">5 秒（默认）</option><option value="10">10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
             </div>
           </section>
-          <section class="settings-group" data-group="privacy" data-keywords="隐私 数据 历史 缓存 清除 重置">
+          <section class="settings-group" data-group="privacy" data-keywords="隐私 数据 历史 缓存 清除 重置 备份 恢复 网站 权限 授权">
             <h3>隐私与数据</h3>
             <div class="settings-card">
               <div class="setting-row"><span>删除浏览数据<span class="setting-detail">按时间范围选择历史、网站数据、缓存和下载记录</span></span><button class="secondary-button" id="settings-clear-data">选择数据</button></div>
               <div class="setting-row"><span>浏览历史<span class="setting-detail" id="history-size"></span></span><button class="secondary-button" id="settings-clear-history">清除历史</button></div>
               <div class="setting-row"><span>网站缓存<span class="setting-detail">保留收藏和登录状态</span></span><button class="secondary-button" id="clear-cache">清除缓存</button></div>
               <div class="setting-row"><span>恢复默认设置<span class="setting-detail">保留收藏、历史和快捷方式</span></span><button class="secondary-button" id="reset-settings">重置设置</button></div>
-            </div>
-          </section>
-          <section class="settings-group" data-group="passwords" data-keywords="密码 账号 保存 自动填充 登录 安全 管理">
+             </div>
+             <h3>备份与恢复</h3>
+             <div class="settings-card">
+               <label class="setting-row"><span class="setting-label">备份密码<span class="setting-detail">密码默认不包含在备份中；勾选后会使用单独的口令加密</span></span><input type="checkbox" class="switch" id="backup-include-passwords"></label>
+               <label class="setting-row setting-row-stacked"><span>密码备份口令</span><input id="backup-passphrase" type="password" minlength="12" maxlength="1024" placeholder="至少 12 个字符" autocomplete="new-password"></label>
+               <div class="setting-row"><span class="setting-label">浏览资料文件<span class="setting-detail">收藏、历史、设置和下载记录会保存；Cookie、缓存和已下载文件本身不会保存</span></span><div class="inline-field"><button class="secondary-button" id="backup-export">导出备份</button><button class="secondary-button" id="backup-import">恢复备份</button></div></div>
+             </div>
+             <h3>网站权限</h3>
+             <div class="settings-card"><div id="site-permissions-list" class="site-permissions-list"></div><p class="essentials-note">这里可以查看并撤销已保存的摄像头、麦克风、位置、通知和剪贴板读取授权。</p></div>
+           </section>
+           <section class="settings-group" data-group="passwords" data-keywords="密码 账号 保存 自动填充 登录 安全 管理">
             <div class="settings-card">
               <label class="setting-row"><span class="setting-label">询问是否保存密码<span class="setting-detail">提交登录或修改密码时显示保存提示</span></span><input type="checkbox" class="switch" data-setting="savePasswords" id="setting-savePasswords"></label>
               <label class="setting-row"><span class="setting-label">自动填充账号与密码<span class="setting-detail">多个账号时，在登录框中选择要使用的账号</span></span><input type="checkbox" class="switch" data-setting="autofillPasswords" id="setting-autofillPasswords"></label>
@@ -224,7 +243,8 @@
           <button class="browser-menu-row" role="menuitem" data-menu-submenu="extensions" aria-haspopup="menu" aria-expanded="false"><span data-icon="puzzle"></span>扩展程序<span class="menu-arrow" data-icon="right"></span></button>
           <button class="browser-menu-row" role="menuitem" data-browser-action="passwords"><span data-icon="key"></span>密码</button>
           <div class="menu-divider" role="separator"></div>
-          <button class="browser-menu-row" role="menuitem" data-browser-action="clear-data"><span data-icon="trash"></span>删除浏览数据<kbd>Ctrl+Shift+Delete</kbd></button>
+           <button class="browser-menu-row" role="menuitem" data-browser-action="clear-data"><span data-icon="trash"></span>删除浏览数据<kbd>Ctrl+Shift+Delete</kbd></button>
+           <button class="browser-menu-row" role="menuitem" data-browser-action="install-pwa" hidden><span data-icon="globe"></span>安装网站应用</button>
           <button class="browser-menu-row" role="menuitem" data-browser-action="print" data-needs-page><span data-icon="print"></span>打印<kbd>Ctrl+P</kbd></button>
           <button class="browser-menu-row" role="menuitem" data-browser-action="translate-page" data-needs-page><span data-icon="translate"></span>翻译</button>
           <button class="browser-menu-row" role="menuitem" data-browser-action="ie-mode" id="menu-ie-mode"><span data-icon="globe"></span><span id="menu-ie-label">使用 IE 兼容模式重新加载</span></button>
@@ -284,7 +304,14 @@
     <details id="site-certificate"><summary>连接与证书信息</summary><dl id="site-certificate-details"></dl></details>
     <div class="section-label">网站权限 <small id="site-info-session"></small></div><div id="site-info-permissions"></div>
     <p id="site-info-cookies" class="essentials-note"></p><p class="essentials-note">权限变更在重新加载后生效。跨来源嵌入页面不会继承此网站的授权。</p>
-    <div class="dialog-actions"><button id="site-info-reload" class="primary-button">重新加载</button></div>
+    <div class="dialog-actions"><button id="site-app-install" class="secondary-button" hidden>安装网站应用</button><button id="site-info-reload" class="primary-button">重新加载</button></div>
+  </dialog>
+  <dialog id="backup-restore-dialog" class="essentials-dialog" aria-labelledby="backup-restore-title">
+    <form id="backup-restore-form"><div class="dialog-top"><h2 id="backup-restore-title">恢复浏览资料</h2><button type="button" id="backup-restore-close" class="icon-button" data-icon="close" aria-label="关闭恢复"></button></div>
+      <p id="backup-restore-summary" class="essentials-note"></p><label>恢复方式<select id="backup-restore-mode"><option value="merge">合并到当前资料</option><option value="replace">替换当前资料</option></select></label>
+      <label id="backup-restore-passphrase-row">备份口令<input id="backup-restore-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="current-password"></label><p id="backup-restore-error" class="form-error" role="status"></p>
+      <div class="dialog-actions"><button type="button" id="backup-restore-cancel" class="secondary-button">取消</button><button type="submit" id="backup-restore-submit" class="primary-button">继续</button></div>
+    </form>
   </dialog>
   <dialog id="bookmark-manager-dialog" class="essentials-dialog bookmark-manager-dialog" aria-labelledby="bookmark-manager-title">
     <div class="dialog-top"><h2 id="bookmark-manager-title">管理收藏</h2><button id="bookmark-manager-close" class="icon-button" data-icon="close" aria-label="关闭收藏管理"></button></div>
@@ -325,6 +352,9 @@
   <script src="workspace-ui.js"></script>
   <script src="essentials-ui.js"></script>
   <script src="browser-import-ui.js"></script>
+  <script src="backup-ui.js"></script>
+  <script src="site-permissions-ui.js"></script>
+  <script src="pwa-apps-ui.js"></script>
   <script src="modal-source.js"></script>
   <script src="platform-ui.js"></script>
   <script src="app.js"></script>

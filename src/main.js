@@ -3,7 +3,7 @@ if (process.argv.includes('--luna-trash-helper')) {
   return;
 }
 
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol, Notification, nativeImage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -13,10 +13,14 @@ const { GROUP_COLORS, splitBounds } = require('./workspace-model');
 const { HOME, SETTINGS, EXTENSIONS, DEFAULT_SETTINGS, resolveAddress, resolveWebsite, isWebUrl, isViewSourceUrl, isInternalUrl, sanitizeSettings, recentSites } = require('./core');
 const { Store } = require('./store');
 const { DownloadManager } = require('./downloads');
+const { retryPolicy } = require('./download-retry');
+const { chromeUserAgent, configureSessionIdentity, isGoogleOAuthPopup } = require('./browser-identity');
+const { APP_ID, applyWindowIdentity } = require('./windows-identity');
 const { ExtensionManager } = require('./extensions');
 const { setSessionPartitionResolver } = require('electron-chrome-extensions');
 const { PrivateProtection } = require('./private-protection');
 const { SitePermissions, secureOrigin } = require('./site-permissions');
+const { sanitizeManifest, webURL, withinScope } = require('./pwa-apps');
 const { addressCandidates } = require('./address-candidates');
 const { SearchSuggestions, searchCandidates } = require('./search-suggestions');
 const { BrowserImporter, TYPES: IMPORT_TYPES } = require('./browser-import');
@@ -41,9 +45,15 @@ const { PageTools } = require('./page-tools');
 const { markDownloadedFile } = require('./download-origin');
 const { AppearanceAssets } = require('./appearance-assets');
 const { PasswordManager } = require('./password-manager');
+const { createBackup, parseBackup, decryptPasswords, mergeData, MAX_BACKUP_BYTES } = require('./browser-backup');
 const { Compatibility } = require('./compatibility');
 const { originOf, storageScript } = require('./compatibility-model');
-const { REGIONS, ICONS, DEFAULT_APPEARANCE, patchAppearance, sanitizeAppearance } = require('./ui/appearance-model');
+const { REGIONS, ICONS, DEFAULT_APPEARANCE, patchAppearance, presetAppearance, sanitizeAppearance } = require('./ui/appearance-model');
+
+const defaultWindowIconPath = process.platform === 'win32' && app.isPackaged ? path.join(process.resourcesPath, 'app.ico') : path.join(__dirname, 'ui', 'assets', process.platform === 'win32' ? 'app.ico' : 'app.png');
+function defaultWindowIcon() {
+  try { return nativeImage.createFromPath(defaultWindowIconPath); } catch { return null; }
+}
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'luna-asset', privileges: { standard: true, secure: true } }]);
 
@@ -58,13 +68,16 @@ if (!customProfile && !fs.existsSync(profile)) {
 }
 app.setPath('userData', profile);
 app.setName('luna');
-if (process.platform === 'win32') app.setAppUserModelId('luna.browser');
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+app.userAgentFallback = chromeUserAgent(app.userAgentFallback);
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const launchURLs = externalURLs(process.argv);
 const browsers = new Set(), services = new Map(), closedSessions = [];
 let quitRequest = null, quitting = false, updateInstalling = false, sharedUpdater;
 let sharedStore, sharedAssets, sharedExtensions, sharedVault, sharedImporter, privateContext, extensionsReady, tabSequence = 0;
+let backupImportStage = null;
+const pwaWindows = new Map();
 const privateSessionsRoot = path.join(profile, 'private-sessions');
 const extensionPartitions = new Map();
 setSessionPartitionResolver(partition => {
@@ -79,6 +92,63 @@ function privateBrowser(context) {
 function emptyExtensions() { return { records: new Map(), snapshot: () => [], globalEnabled: false, allowedURL: () => false, contextMenuItems: async () => [], bridge: { selectTab() {}, addTab() {}, removeTab() {}, getURLOverrides: () => ({}) } }; }
 function ownerOf(web) { return [...browsers].find(browser => [...browser.tabs.values()].some(tab => tab.view.webContents === web)); }
 function focusedBrowser() { const focused = BrowserWindow.getFocusedWindow(); return [...browsers].find(browser => !browser.isPrivate && !browser.window.isDestroyed() && (browser.window === focused || browser.window.getChildWindows().includes(focused))) || [...browsers].find(browser => !browser.isPrivate && !browser.window.isDestroyed()); }
+function pwaRecord(id) { return sharedStore?.data.installedApps?.find(app => app.id === id) || null; }
+function createPwaWindow(record) {
+  if (!record || !withinScope(record.startUrl, record.scope)) throw new Error('网站应用地址无效');
+  const existing = pwaWindows.get(record.id);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return existing; }
+  const pwaSession = session.fromPartition('persist:luna-pwa-' + record.id, { cache: true });
+  configureSessionIdentity(pwaSession);
+  const pwaWindow = new BrowserWindow({ width: 1180, height: 820, minWidth: 640, minHeight: 480, title: record.name, show: false,
+    backgroundColor: record.themeColor || '#ffffff', icon: defaultWindowIconPath,
+    webPreferences: { session: pwaSession, contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  pwaWindows.set(record.id, pwaWindow);
+  applyWindowIdentity(pwaWindow, { app, shell, icon: defaultWindowIconPath });
+  const web = pwaWindow.webContents;
+  const openExternal = url => {
+    if (!webURL(url)) return;
+    const browser = focusedBrowser(); if (browser) browser.createTab(url); else createBrowser({ urls: [url] }).catch(console.error);
+  };
+  web.setWindowOpenHandler(({ url }) => { if (withinScope(url, record.scope)) web.loadURL(url).catch(() => {}); else openExternal(url); return { action: 'deny' }; });
+  web.on('will-navigate', (event, url) => { if (!withinScope(url, record.scope)) { event.preventDefault(); openExternal(url); } });
+  web.on('will-redirect', (event, url) => { if (!withinScope(url, record.scope)) { event.preventDefault(); openExternal(url); } });
+  pwaSession.setPermissionCheckHandler(() => false);
+  pwaSession.setPermissionRequestHandler((_, __, callback) => callback(false));
+  pwaWindow.once('ready-to-show', () => pwaWindow.show());
+  pwaWindow.on('closed', () => { if (pwaWindows.get(record.id) === pwaWindow) pwaWindows.delete(record.id); });
+  web.loadURL(record.startUrl).catch(error => { if (!pwaWindow.isDestroyed()) { pwaWindow.close(); focusedBrowser()?.notice('网站应用无法打开：' + error.message); } });
+  return pwaWindow;
+}
+async function readResponseText(response, maximum) {
+  if (!response.ok) { await response.body?.cancel(); throw new Error('网站应用清单返回 HTTP ' + response.status); }
+  const length = Number(response.headers.get('content-length')); if (Number.isFinite(length) && length > maximum) { await response.body?.cancel(); throw new Error('网站应用清单过大'); }
+  const chunks = []; let size = 0;
+  for await (const chunk of response.body) { size += chunk.length; if (size > maximum) { await response.body.cancel().catch(() => {}); throw new Error('网站应用清单过大'); } chunks.push(Buffer.from(chunk)); }
+  return Buffer.concat(chunks).toString('utf8');
+}
+async function inspectPwa(tab, context) {
+  if (context?.privateMode || !tab || tab.ie || !isWebUrl(tab.url) || tab.view.webContents.isDestroyed()) return;
+  const expected = tab.url;
+  let href = '';
+  try { href = await tab.view.webContents.executeJavaScript("document.querySelector(\"link[rel~='manifest']\")?.href || ''", true); } catch { return; }
+  if (context.tabs.get(tab.id) !== tab || tab.url !== expected) return;
+  const manifest = webURL(href);
+  tab.pwaManifestUrl = manifest?.origin === new URL(expected).origin ? manifest.href : null;
+  context.changed();
+}
+async function installPwa(tab, context) {
+  if (context?.privateMode || !tab || tab.ie || !isWebUrl(tab.url)) throw new Error('请在普通网页中安装网站应用');
+  if (!tab.pwaManifestUrl) await inspectPwa(tab, context);
+  if (!tab.pwaManifestUrl) throw new Error('此网站没有提供可安装的网站应用');
+  const response = await context.webSession.fetch(tab.pwaManifestUrl, { credentials: 'include', redirect: 'error', signal: AbortSignal.timeout(15000) });
+  const manifest = JSON.parse(await readResponseText(response, 1024 * 1024));
+  const record = sanitizeManifest(manifest, tab.url, tab.pwaManifestUrl);
+  const previous = pwaRecord(record.id);
+  const selected = await context.prompts.ask({ kind: 'pwa-install', title: previous ? '更新网站应用' : '安装网站应用', message: (previous ? '更新“' : '安装“') + record.name + '”？', detail: record.startUrl + '\n网站应用会在独立窗口中打开，并使用独立的网站存储。', confirmLabel: previous ? '更新并打开' : '安装并打开' });
+  if (!selected.accepted) return null;
+  sharedStore.data.installedApps = [...sharedStore.data.installedApps.filter(app => app.id !== record.id), record].slice(-100);
+  sharedStore.save(); broadcast(); createPwaWindow(record); return record;
+}
 function broadcast() { for (const browser of browsers) { browser.updateAppearance(); browser.sendState(); } }
 app.on('second-instance', (_, argv) => {
   const urls = externalURLs(argv), browser = focusedBrowser();
@@ -104,7 +174,7 @@ if (isPrivate && !privateContext) {
   const directory = createPrivateDirectory(privateSessionsRoot);
   if (extensionStorage) watchPrivateCleanup(privateSessionsRoot, app.isPackaged ? path.join(process.resourcesPath, 'luna-private-cleanup.exe') : path.join(__dirname, 'native', 'luna-private-cleanup.exe'));
   const transient = new Store(directory);
-  transient.data = { ...structuredClone(sharedStore.data), history: [], session: [], sessionWindows: [], siteActivity: {}, siteSettings: {}, cookieTimes: {}, icons: {} };
+   transient.data = { ...structuredClone(sharedStore.data), history: [], session: [], sessionWindows: [], siteActivity: {}, siteSettings: {}, cookieTimes: {}, icons: {}, installedApps: [] };
   transient.data.settings.savePasswords = false; transient.data.settings.autofillPasswords = false;
   transient.save = () => {};
   transient.toggleBookmark = (...args) => { sharedStore.toggleBookmark(...args); transient.data.bookmarks = sharedStore.data.bookmarks; broadcast(); };
@@ -115,6 +185,7 @@ if (isPrivate && !privateContext) {
 }
 const context = isPrivate ? privateContext : null;
 const webSession = isPrivate ? privateContext.session : session.fromPartition('persist:luma-web');
+configureSessionIdentity(webSession);
 const directory = isPrivate ? privateContext.directory : app.getPath('userData');
 let window, store = isPrivate ? privateContext.store : sharedStore, activeId, overlay = false, updateTimer;
 let downloadManager, extensionManager, nativeTimer, closing = false;
@@ -136,10 +207,11 @@ let downloadHistory;
 const suggestionService = new SearchSuggestions((url, options) => session.fromPartition('luna-search-suggestions', { cache: false }).fetch(url, options));
 let suggestionRequest = 0;
 const closedTabs = [];
+const recentTabIds = [];
 let controller, split = null;
 let suggestions = { query: '', items: [], selected: -1, filter: 'all', phrases: [] };
 const groups = new Map();
-const MENU_ACTIONS = new Set(['ie-mode','new-tab','new-window','private-window','groups','split','bookmarks','history','downloads','extensions','passwords','clear-data','print','translate-page','screenshot','find','save-page','reading-page','qr','screenshot-full','source','devtools','settings','shortcuts','about','close','edge-store','chrome-store','zoom-out','zoom-in','zoom-reset','fullscreen']);
+const MENU_ACTIONS = new Set(['ie-mode','new-tab','new-window','private-window','groups','split','bookmarks','history','downloads','extensions','passwords','clear-data','print','translate-page','screenshot','find','save-page','reading-page','qr','screenshot-full','source','devtools','settings','shortcuts','about','close','edge-store','chrome-store','install-pwa','zoom-out','zoom-in','zoom-reset','fullscreen']);
 
 function snapshot() {
   if (isPrivate) { store.data.bookmarks = sharedStore.data.bookmarks; store.data.bookmarkFolders = sharedStore.data.bookmarkFolders; }
@@ -160,7 +232,10 @@ function snapshot() {
       secure: tabs.get(activeId).url.startsWith('https:') && !tabs.get(activeId).error, legacy: !!tabs.get(activeId).ie,
       security: tabs.get(activeId).security || null, permissions: sitePermissions.snapshot(new URL(tabs.get(activeId).url).origin) } : null,
     privateProtection: isPrivate ? { ...context.protection.snapshot(tabs.get(activeId)?.view.webContents), extensionStorage: context.extensionStorage } : null,
-    settings: store.data.settings, dark: nativeTheme.shouldUseDarkColors,
+     settings: store.data.settings, dark: nativeTheme.shouldUseDarkColors,
+     sitePermissions: isPrivate ? [] : (sitePermissions?.list() || []),
+     installedApps: isPrivate ? [] : (store.data.installedApps || []),
+     pwa: !isPrivate && tabs.get(activeId) ? { canInstall: !!tabs.get(activeId).pwaManifestUrl, installed: !!tabs.get(activeId).pwaManifestUrl && (store.data.installedApps || []).some(app => app.origin === new URL(tabs.get(activeId).url).origin), name: (store.data.installedApps || []).find(app => app.origin === new URL(tabs.get(activeId).url).origin)?.name || '' } : null,
     downloadPath: store.data.settings.downloadPath || app.getPath('downloads'),
     completedDownloads: downloadNotices?.count || 0,
     version: app.getVersion(), chromium: process.versions.chrome,
@@ -169,8 +244,8 @@ function snapshot() {
     extensions: extensionManager?.snapshot() || [], extensionInstalling: extensionManager?.installing || false,
     extensionsEnabled: extensionManager?.globalEnabled !== false,
     extensionInstallState: extensionManager?.installState || null,
-    downloads: [...(downloadManager?.snapshot() || []), ...[...downloads.values()].map(({ item, file, lastReceived, lastTime, ...entry }) => entry),
-      ...[...(downloadHistory?.records.values() || [])].filter(entry => !downloads.has(entry.id)).map(({ file, fingerprint, ...entry }) => entry)].sort((a, b) => a.createdAt - b.createdAt),
+    downloads: [...(downloadManager?.snapshot() || []).filter(entry => !entry.deleting), ...[...downloads.values()].filter(entry => !entry.deleting).map(({ item, file, lastReceived, lastTime, retryTimer, retryHeaders, ...entry }) => entry),
+      ...[...(downloadHistory?.records.values() || [])].filter(entry => !entry.deleting && !downloads.has(entry.id)).map(({ file, fingerprint, ...entry }) => entry)].sort((a, b) => a.createdAt - b.createdAt),
     maximized: window.isMaximized(),
     fullscreen: window.isFullScreen(), windowWidth: window.getContentSize()[0],
     prompt: prompts?.active?.view || null,
@@ -220,6 +295,11 @@ function activateTab(id) {
   contextMenus?.close(true);
   popovers?.close(true);
   suggestionService.cancel(); suggestionRequest++;
+  if (activeId !== id && tabs.has(activeId)) {
+    const previousIndex = recentTabIds.indexOf(activeId);
+    if (previousIndex >= 0) recentTabIds.splice(previousIndex, 1);
+    recentTabIds.unshift(activeId);
+  }
   activeId = id;
   if (split && ![split.leftId, split.rightId].includes(id)) split = null;
   extensionManager?.bridge.selectTab(tabs.get(id).view.webContents);
@@ -269,10 +349,10 @@ function navigate(tab, input) {
   layout();
   sendState();
 }
-function createTab(input = HOME, active = true) {
+function createTab(input = HOME, active = true, insertAfterId = activeId, popup = false, popupWebContents = null) {
   if (tabs.size >= 30) { toast('最多打开 30 个标签页，请先关闭部分标签。'); return; }
   const previousActive = activeId;
-  const view = new WebContentsView({ webPreferences: {
+  const view = new WebContentsView({ ...(popupWebContents ? { webContents: popupWebContents } : {}), webPreferences: {
     session: webSession, nodeIntegration: false, contextIsolation: true,
     // Permit sandboxed preloads to receive IPC in subframes; page worlds still
     // have no Node integration, and the password handler checks every ancestor.
@@ -280,13 +360,20 @@ function createTab(input = HOME, active = true) {
     sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
   } });
   const id = ++tabSequence;
-  const tab = { id, view, title: '新标签页', url: HOME, loading: false, error: null, favicon: '', iconRequest: 0, pendingSaveAs: new Map(), dragKey: randomUUID() };
+  const tab = { id, view, title: '新标签页', url: HOME, loading: false, error: null, favicon: '', iconRequest: 0, pendingSaveAs: new Map(), dragKey: randomUUID(), pwaManifestUrl: null };
   tabs.set(id, tab);
-  if (active || !previousActive) activeId = id;
+  if (active || !previousActive) {
+    if (previousActive && tabs.has(previousActive)) {
+      const previousIndex = recentTabIds.indexOf(previousActive);
+      if (previousIndex >= 0) recentTabIds.splice(previousIndex, 1);
+      recentTabIds.unshift(previousActive);
+    }
+    activeId = id;
+  }
   if (active && split) split = null;
   window.contentView.addChildView(view);
   const web = view.webContents;
-  web.setUserAgent(web.session.getUserAgent().replace(/\s(?:Electron|luna|Luma)\/[\d.]+/gi, ''));
+  web.setUserAgent(chromeUserAgent(web.session.getUserAgent()));
   tab.requests = observeRequests(web);
   if (isPrivate) {
     tab.initializingProtection = true;
@@ -295,13 +382,25 @@ function createTab(input = HOME, active = true) {
   }
   registeringTab = true;
   try { extensionManager?.bridge.addTab(web, window); } finally { registeringTab = false; }
+  if (insertAfterId && tabs.has(insertAfterId)) {
+    const ordered = [...tabs.values()], sourceIndex = ordered.findIndex(existing => existing.id === insertAfterId);
+    const next = ordered.slice(sourceIndex + 1).find(existing => existing.pinned === tab.pinned);
+    orderTabs(id, next?.id ?? null);
+  }
   const allowedURL = url => ownerOf(web)?.allowedURL(url);
-  web.setWindowOpenHandler(({ url }) => {
+  web.setWindowOpenHandler(({ url, disposition }) => {
     const owner = ownerOf(web);
-    if (allowedURL(url)) owner.createTab(url);
-    else owner?.notice('此链接使用了暂不支持的协议。');
+    if (!owner || owner.tabs.size >= 30 || !(url === 'about:blank' || allowedURL(url))) {
+      owner?.notice('无法打开此新标签页，请检查网址或标签数量。'); return { action: 'deny' };
+    }
+    if (isGoogleOAuthPopup(url)) return {
+      action: 'allow',
+      overrideBrowserWindowOptions: { width: 520, height: 720, parent: owner.window, modal: false, show: true, title: 'Google 登录', icon: defaultWindowIconPath },
+    };
+    owner.createTab(url === 'about:blank' ? HOME : url, disposition !== 'background-tab', tab.id);
     return { action: 'deny' };
   });
+  web.on('close', event => { if (tab.allowClose) return; event.preventDefault(); ownerOf(web)?.closeTab(tab.id); });
   web.on('will-navigate', (event, url) => { if (!allowedURL(url)) event.preventDefault(); });
   web.on('will-redirect', (event, url) => { if (!allowedURL(url)) event.preventDefault(); });
   for (const type of ['focus', 'devtools-closed', 'did-start-navigation', 'did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated', 'page-favicon-updated', 'did-finish-load', 'did-fail-load', 'render-process-gone', 'found-in-page', 'context-menu', 'media-started-playing', 'media-paused']) {
@@ -319,13 +418,14 @@ function createTab(input = HOME, active = true) {
   if (active) activeId = id;
   if (active) extensionManager?.bridge.selectTab(web);
   else if (previousActive && tabs.has(previousActive)) { activeId = previousActive; extensionManager?.bridge.selectTab(tabs.get(previousActive).view.webContents); }
-  navigate(tab, input);
+  if (popup) { tab.url = 'about:blank'; layout(); sendState(); }
+  else navigate(tab, input);
   return id;
 }
 async function tabEvent(tab, type, args) {
   const web = tab.view.webContents;
   if (closing || !web || web.isDestroyed() || tabs.get(tab.id) !== tab) return;
-  if (type === 'focus') { if (split && [split.leftId, split.rightId].includes(tab.id) && activeId !== tab.id) { activeId = tab.id; passwordManager?.popupClosed(); extensionManager?.bridge.selectTab(web); sendState(); } return; }
+  if (type === 'focus') { if (split && [split.leftId, split.rightId].includes(tab.id) && activeId !== tab.id) { if (tabs.has(activeId)) { const index = recentTabIds.indexOf(activeId); if (index >= 0) recentTabIds.splice(index, 1); recentTabIds.unshift(activeId); } activeId = tab.id; passwordManager?.popupClosed(); extensionManager?.bridge.selectTab(web); sendState(); } return; }
   if (type === 'devtools-closed' && isPrivate) {
     // The native DevTools frontend is still being destroyed inside this event.
     // Reattaching CDP from that stack can abort Electron on Windows.
@@ -337,6 +437,7 @@ async function tabEvent(tab, type, args) {
   if (tab.ie || tab.initializingProtection) return;
   if (type === 'did-start-navigation') {
     const [, url, inPage, main] = args;
+    if (main && !inPage) tab.pwaManifestUrl = null;
     if (main && !inPage) prompts?.cancelWhere(prompt => prompt.kind === 'site-permission' && prompt.permissionTarget === web.id);
     if (tab.id === activeId && popovers?.kind === 'passwords' && popovers.anchor?.field) popovers.close(true);
     if (main && controller.allowedURL(url) && isInternalUrl(tab.url)) { tab.url = url; tab.error = null; layout(); sendState(); }
@@ -359,6 +460,7 @@ async function tabEvent(tab, type, args) {
       if (originOf(web.getURL()) === storage.origin) { try { if (await web.executeJavaScript(storageScript(storage))) { web.reload(); return; } } catch { toast('网站存储同步未完成，请重新登录此网站。'); } }
     }
     tab.title = web.getTitle() || tab.url; recordVisit(tab); if (!tab.favicon && isWebUrl(tab.url)) refreshFavicon(tab, new URL('/favicon.ico', tab.url).href); sendState();
+    inspectPwa(tab, { privateMode: isPrivate, tabs, changed: sendState }).catch(() => {});
   } else if (type === 'did-fail-load') {
     const [, code, description, url, main] = args; if (!main || code === -3 || isInternalUrl(tab.url)) return;
     tab.loading = false; tab.error = { code, description, url }; tab.title = '页面未能打开'; layout(); sendState();
@@ -385,8 +487,9 @@ function detachTab(tab) {
   popovers.close(true); contextMenus.close(true); passwordManager?.forget(tab.id);
   if (split && [split.leftId, split.rightId].includes(tab.id)) split = null;
   window.contentView.removeChildView(tab.view); tabs.delete(tab.id); delete tab.groupId;
+  const recentIndex = recentTabIds.indexOf(tab.id); if (recentIndex >= 0) recentTabIds.splice(recentIndex, 1);
   for (const [id] of groups) if (![...tabs.values()].some(member => member.groupId === id)) groups.delete(id);
-  if (activeId === tab.id) activeId = [...tabs.keys()].at(-1);
+  if (activeId === tab.id) activeId = recentTabIds.find(id => tabs.has(id)) || [...tabs.keys()].at(-1);
   if (!tabs.size) createTab(); else activateTab(activeId);
 }
 function receiveTab(tab, beforeId) {
@@ -449,21 +552,21 @@ function closeTab(id) {
   contextMenus?.close(true);
   compatibility?.closeTab(tab).catch(error=>toast(error.message));
   if (split && [split.leftId, split.rightId].includes(id)) {
-    const other = split.leftId === id ? split.rightId : split.leftId;
-    split = null; if (activeId === id) activeId = other;
+    split = null;
   }
   if (isWebUrl(tab.url)) { closedTabs.push(tab.url); if (closedTabs.length > 20) closedTabs.shift(); }
   const ids = [...tabs.keys()];
   const index = ids.indexOf(id);
   window.contentView.removeChildView(tab.view);
   tabs.delete(id);
+  const recentIndex = recentTabIds.indexOf(id); if (recentIndex >= 0) recentTabIds.splice(recentIndex, 1);
   if (tab.groupId && ![...tabs.values()].some(other => other.groupId === tab.groupId)) groups.delete(tab.groupId);
   passwordManager?.forget(id);
   extensionManager?.bridge.removeTab(tab.view.webContents);
-  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  if (!tab.view.webContents.isDestroyed()) { tab.allowClose = true; tab.view.webContents.close(); }
   if (closing) return;
   if (!tabs.size) createTab();
-  else if (activeId === id) activateTab(ids[index + 1] || ids[index - 1]);
+  else if (activeId === id) activateTab(recentTabIds.find(recentId => tabs.has(recentId)) || ids[index + 1] || ids[index - 1]);
   layout();
   sendState();
 }
@@ -638,6 +741,7 @@ async function browserMenuAction(action) {
     case 'extensions': openExtensions(); break;
     case 'passwords': openSettingsSection('passwords'); break;
     case 'settings': openSettings(); break;
+    case 'install-pwa': await installPwa(tab, { privateMode: isPrivate, tabs, webSession, prompts, changed: sendState }); break;
     case 'about': openSettingsSection('about'); break;
     case 'shortcuts': window.webContents.focus(); window.webContents.send('browser:shortcut','help'); break;
     case 'clear-data': showClearData(); break;
@@ -660,6 +764,13 @@ function applySettings(value) {
   if (isPrivate) { store.data.settings.savePasswords = false; store.data.settings.autofillPasswords = false; }
   if (!isPrivate) nativeTheme.themeSource = store.data.settings.theme;
   store.save();
+  downloadManager?.setConcurrency(store.data.settings.downloadConcurrency);
+  if (previous.downloadRetryAttempts !== store.data.settings.downloadRetryAttempts || previous.downloadRetryDelay !== store.data.settings.downloadRetryDelay) {
+    downloadManager?.configureRetry(store.data.settings);
+    for (const entry of downloads.values()) if (entry.status === 'retrying' && !retryPolicy(store.data.settings).attempts) {
+      clearTimeout(entry.retryTimer); entry.retryTimer = null; entry.retryAt = null; entry.status = 'interrupted';
+    }
+  }
   if (!isPrivate && previous.autoUpdate !== store.data.settings.autoUpdate) sharedUpdater?.configure(store.data.settings.autoUpdate);
   if (previous.savePasswords !== store.data.settings.savePasswords || previous.autofillPasswords !== store.data.settings.autofillPasswords) passwordManager?.settingsChanged();
   if (previous.searchSuggestions !== store.data.settings.searchSuggestions || previous.searchEngine !== store.data.settings.searchEngine) {
@@ -675,7 +786,7 @@ function updateAppearanceWindows() {
   contextMenus?.updateAppearance(); pageTools?.updateAppearance(appearance, nativeTheme.shouldUseDarkColors);
   const iconKey = appearance.icons.custom.brand || '';
   if (iconKey !== lastWindowIcon) {
-    const icon = appearanceAssets?.windowIcon(iconKey);
+    const icon = iconKey ? appearanceAssets?.windowIcon(iconKey) : defaultWindowIcon();
     if (icon && !icon.isEmpty()) { if (process.platform === 'darwin') app.dock?.setIcon(icon); else window.setIcon(icon); lastWindowIcon = iconKey; }
   }
 }
@@ -704,6 +815,26 @@ function downloadDestination(name) {
   while (fs.existsSync(file) || reserved.has(path.resolve(file).toLowerCase())) file = path.join(directory, `${stem} (${suffix++})${extension}`);
   return file;
 }
+function refreshDownloadQueue() {
+  if (!downloadManager) return;
+  const native = [...downloads.values()].filter(entry => !entry.removed);
+  let runningEntries = native.filter(entry => !entry.queuePaused && ['waiting', 'progressing'].includes(entry.status)).sort((a, b) => a.createdAt - b.createdAt);
+  let running = runningEntries.length;
+  const nativeCapacity = Math.max(0, downloadManager.concurrency - downloadManager.activeCount());
+  for (const entry of runningEntries.slice(nativeCapacity).reverse()) {
+    try { entry.item.pause(); entry.queuePaused = true; entry.status = 'queued'; running--; } catch {}
+  }
+  const queued = native.filter(entry => entry.queuePaused && entry.status === 'queued');
+  downloadManager.setExternalSlots(running + queued.length);
+  let available = Math.max(0, downloadManager.concurrency - downloadManager.activeCount() - running);
+  for (const entry of queued.sort((a, b) => a.createdAt - b.createdAt)) {
+    if (!available) break;
+    entry.queuePaused = false; entry.status = 'waiting';
+    try { entry.item.resume(); running++; available--; }
+    catch { entry.queuePaused = true; entry.status = 'queued'; }
+  }
+  downloadManager.setExternalSlots(running + queued.filter(entry => entry.queuePaused).length);
+}
 function downloadCompleted(entry) {
   const browser = ownerOfDownload(entry) || [...browsers].find(browser => browser.webSession === webSession);
   notifyDownload({ enabled: (isPrivate ? store : sharedStore).data.settings.downloadNotifications, browser, entry, name: entry.name, file: entry.file,
@@ -720,9 +851,9 @@ async function beginManagedDownload(url, name, headers = {}, existing) {
 }
 function configureDownloads(webSession) {
   const existing = services.get(webSession);
-  if (existing) { downloadManager = existing.manager; downloads = existing.downloads; downloadHistory = existing.history; downloadManager.on('change', sendState); return; }
+   if (existing) { downloadManager = existing.manager; downloads = existing.downloads; downloadHistory = existing.history; downloadManager.on('change', () => { refreshDownloadQueue(); sendState(); }); return; }
   downloadHistory = new DownloadHistory(directory, !isPrivate);
-  downloadManager = new DownloadManager({ directory,
+  downloadManager = new DownloadManager({ directory, concurrency: store.data.settings.downloadConcurrency, ...retryPolicyOptions(),
     fetch: (url, options) => webSession.fetch(url, { ...options, credentials: 'include' }),
     onComplete: async job => {
       downloadCompleted(job);
@@ -732,7 +863,7 @@ function configureDownloads(webSession) {
     },
   });
   services.set(webSession, { manager: downloadManager, downloads, history: downloadHistory });
-  downloadManager.on('change', sendState);
+  downloadManager.on('change', () => { refreshDownloadQueue(); sendState(); });
   nativeTimer = setInterval(() => {
     let active = false;
     for (const entry of downloads.values()) {
@@ -758,6 +889,25 @@ function configureDownloads(webSession) {
   });
 }
 function ownerOfDownload(job) { return [...browsers].find(browser => browser.window.id === job.windowId); }
+function retryPolicyOptions() { return { downloadRetryAttempts: store.data.settings.downloadRetryAttempts, downloadRetryDelay: store.data.settings.downloadRetryDelay }; }
+function retryNative(entry, automatic = true) {
+  if (entry.removed || closing) return;
+  clearTimeout(entry.retryTimer); entry.retryTimer = null; entry.retryAt = null;
+  if (entry.retryMethod !== 'GET' || !isWebUrl(entry.url)) { entry.status = 'interrupted'; entry.error = '此请求无法安全重试，请返回网页重新下载。'; sendState(); return; }
+  const id = downloadManager.create({ url: entry.url, file: entry.file, name: entry.name, headers: entry.retryHeaders, threads: 1, retryCount: automatic ? entry.retryCount : 0 });
+  const job = downloadManager.jobs.get(id); job.windowId = entry.windowId; job.completion = entry.completion; job.icon = entry.icon;
+  entry.removed = true; if (!entry.terminal) { try { entry.item.cancel(); } catch {} }
+  downloads.delete(entry.id); downloadHistory.remove(entry.id); sendState();
+}
+function scheduleNativeRetry(entry) {
+  if (entry.retryTimer || entry.removed || closing) return;
+  const policy = retryPolicy(store.data.settings);
+  let canResume = false; try { canResume = !entry.terminal && entry.item.canResume(); } catch {}
+  if (entry.retryCount >= policy.attempts || !canResume && entry.retryMethod !== 'GET') return;
+  entry.retryCount++; entry.retryAt = Date.now() + policy.delay; entry.status = 'retrying';
+  entry.retryTimer = setTimeout(() => { try { retryNative(entry); } catch (error) { entry.status = 'interrupted'; entry.error = error.message; sendState(); } }, policy.delay);
+  entry.retryTimer.unref(); sendState();
+}
 function handleNativeDownload(event, item, owner) {
     const url = item.getURLChain().at(-1) || item.getURL();
     const name = downloadName(item.getFilename());
@@ -779,21 +929,25 @@ function handleNativeDownload(event, item, owner) {
       for (const [id, entry] of downloads) { if (['completed', 'cancelled'].includes(entry.status)) { downloads.delete(id); break; } }
     }
     const id = 'native-' + Date.now() + '-' + downloads.size;
-    const entry = { id, name, url, item, file: '', windowId: window.id, received: 0, total: item.getTotalBytes(), status: 'waiting', managed: false, mode: 'native', threads: [], resumable: false, speed: 0, eta: null, speedLimit: 0, completion: 'none', error: '', icon: '', createdAt: Date.now(), lastTime: Date.now(), lastReceived: 0 };
+    const entry = { id, name, url, item, file: '', windowId: window.id, received: 0, total: item.getTotalBytes(), status: 'waiting', managed: false, mode: 'native', threads: [], resumable: false, speed: 0, eta: null, speedLimit: 0, completion: 'none', error: '', icon: '', createdAt: Date.now(), lastTime: Date.now(), lastReceived: 0, retryCount: 0, retryAt: null, retryTimer: null, retryMethod: metadata?.method || 'GET', retryHeaders: metadata?.headers || {}, terminal: false };
     downloads.set(id, entry);
     fileIcon('', name).then(icon => { entry.icon = icon; sendState(); }).catch(() => {});
     item.on('updated', (_, state) => {
       entry.received = item.getReceivedBytes();
       entry.total = item.getTotalBytes();
-      entry.status = state === 'interrupted' ? 'interrupted' : item.isPaused() ? 'paused' : 'progressing';
+       entry.status = entry.queuePaused ? 'queued' : state === 'interrupted' ? 'interrupted' : item.isPaused() ? 'paused' : 'progressing';
+       refreshDownloadQueue();
       sendState();
     });
     item.once('done', async (_, state) => {
       if (entry.removed) return;
+      entry.terminal = state !== 'interrupted'; if (state !== 'interrupted') { clearTimeout(entry.retryTimer); entry.retryTimer = null; entry.retryAt = null; }
       entry.status = state; entry.file = item.getSavePath(); entry.received = item.getReceivedBytes(); entry.total = item.getTotalBytes();
       entry.speed = 0; entry.eta = null;
-      entry.threads = [{ id: 1, start: 0, end: entry.total ? entry.total - 1 : null, received: entry.received, status: state }];
+       entry.threads = [{ id: 1, start: 0, end: entry.total ? entry.total - 1 : null, received: entry.received, status: state }];
+       entry.queuePaused = false; refreshDownloadQueue();
       downloadHistory.import([entry]);
+      if (state === 'interrupted') scheduleNativeRetry(entry);
       if (state === 'completed') {
         downloadCompleted(entry); entry.icon = await fileIcon(entry.file, entry.name);
         if (entry.completion === 'open') { const error = await shell.openPath(entry.file); if (error) toast(error); }
@@ -802,12 +956,13 @@ function handleNativeDownload(event, item, owner) {
       sendState();
     });
     sendState();
-    if (forceSave) { entry.file = selectedSave.file; item.setSavePath(selectedSave.file); }
+     if (forceSave) { entry.file = selectedSave.file; item.setSavePath(selectedSave.file); }
     else {
       try {
         entry.file = downloadDestination(name); item.setSavePath(entry.file);
       } catch { item.cancel(); toast('无法保存到下载目录，请在设置中更换位置。'); }
-    }
+     }
+    refreshDownloadQueue();
 }
 function showClearData(types = ['history', 'cookies', 'cache', 'downloads'], range = 'hour') {
   window.webContents.send('browser:clear-data', { types, range }); window.webContents.focus();
@@ -816,6 +971,7 @@ function destroyTabs() {
   const owned = [...tabs.values()].map(tab => ({ view: tab.view, web: tab.view.webContents }));
   // Unregister tabs before close emits navigation/focus/destroyed events. A View's
   // webContents property becomes undefined after its contents are destroyed.
+  for (const tab of tabs.values()) tab.allowClose = true;
   tabs.clear(); groups.clear(); split = null; activeId = null;
   for (const {view, web} of owned) {
     if (window && !window.isDestroyed()) window.contentView.removeChildView(view);
@@ -888,9 +1044,14 @@ async function requestClose() {
   window = new BrowserWindow({ width: 1360, height: 900, minWidth: 760, minHeight: 560, frame: process.platform === 'darwin',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 14, y: 12 } } : {}),
     backgroundColor: '#ffffff', title: isPrivate ? 'luna · 无痕' : 'luna', show: false,
-    icon: path.join(__dirname, 'ui', 'assets', 'app.png'),
-    webPreferences: { preload: path.join(__dirname, 'preload.bundle.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
+     icon: defaultWindowIconPath,
+     webPreferences: { preload: path.join(__dirname, 'preload.bundle.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+   });
+  if (process.platform === 'win32') {
+    const icon = defaultWindowIcon();
+    if (icon && !icon.isEmpty()) window.setIcon(icon);
+  }
+  applyWindowIdentity(window, { app, shell, icon: defaultWindowIconPath });
   popovers = new Popovers(window, path.join(__dirname, 'preload.bundle.js'), snapshot, sendState);
   modalLayer = new ModalLayer(window, layout);
   downloadNotices = new DownloadNotices(window, { changed: sendState, blocked: () => closing || modalOpen || !!prompts?.active || !!popovers?.kind,
@@ -947,7 +1108,7 @@ async function requestClose() {
   if (isPrivate) {
     if (context.extensionStorage && !context.extensionManager) {
       context.extensionManager = new ExtensionManager({ directory, session: webSession, window, privateMode: true, partition: context.partition,
-        createTab: async details => { const browser = [...browsers].find(b => b.webSession === webSession && b.window.id === details.windowId) || privateBrowser(context); if (!browser) throw new Error('无痕会话已关闭'); const id = browser.createTab(details.url || HOME, details.active !== false); return [browser.tabs.get(id).view.webContents, browser.window]; },
+        createTab: async details => { const browser = [...browsers].find(b => b.webSession === webSession && b.window.id === details.windowId) || privateBrowser(context); if (!browser) throw new Error('无痕会话已关闭'); const id = browser.createTab(details.url || HOME, details.active !== false, details.openerTabId || browser.activeId); return [browser.tabs.get(id).view.webContents, browser.window]; },
         selectTab: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(t => t.view.webContents === web); if (browser?.webSession === webSession && tab && !browser.registeringTab && tab.id !== browser.activeId) browser.activateTab(tab.id); },
         removeTab: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(t => t.view.webContents === web); if (browser?.webSession === webSession && tab) browser.closeTab(tab.id); },
          getTabDetails: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(t => t.view.webContents === web); return tab ? { url: tab.url, title: tab.title, incognito: true, active: tab.id === browser.activeId, pinned: !!tab.pinned, index: [...browser.tabs.keys()].indexOf(tab.id), favIconUrl: tab.favicon } : {}; },
@@ -968,7 +1129,7 @@ async function requestClose() {
   } else {
     if (!sharedExtensions) {
       sharedExtensions = new ExtensionManager({ directory: app.getPath('userData'), session: webSession, window,
-        createTab: async details => { const browser = [...browsers].find(b => b.window.id === details.windowId && !b.isPrivate) || focusedBrowser(); const id = browser.createTab(details.url || HOME, details.active !== false); return [browser.tabs.get(id).view.webContents, browser.window]; },
+        createTab: async details => { const browser = [...browsers].find(b => b.window.id === details.windowId && !b.isPrivate) || focusedBrowser(); const id = browser.createTab(details.url || HOME, details.active !== false, details.openerTabId || browser.activeId); return [browser.tabs.get(id).view.webContents, browser.window]; },
         selectTab: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(tab => tab.view.webContents === web); if (tab && !browser.registeringTab && tab.id !== browser.activeId) browser.activateTab(tab.id); },
         removeTab: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(tab => tab.view.webContents === web); if (tab) browser.closeTab(tab.id); },
         getTabDetails: web => { const browser = ownerOf(web), tab = browser && [...browser.tabs.values()].find(tab => tab.view.webContents === web); return tab ? { url: tab.url, title: tab.title, active: tab.id === browser.activeId, pinned: !!tab.pinned, index: [...browser.tabs.keys()].indexOf(tab.id), favIconUrl: tab.favicon } : {}; },
@@ -1101,6 +1262,10 @@ async function requestClose() {
         if (!tab || tab.id !== payload?.tabId || !secureOrigin(tab.url) || new URL(tab.url).origin !== payload.origin || tab.ie) throw new Error('网站已变化，请重新打开网站信息');
         sitePermissions.set(payload.origin, payload.key, payload.value); toast('权限已更新，重新加载网页后生效'); break;
       }
+      case 'site-permission-clear': {
+        if (isPrivate || typeof payload !== 'string') throw new Error('无痕窗口不会保存网站权限');
+        sitePermissions.clear(payload); toast('网站授权已撤销'); break;
+      }
       case 'site-data-summary': {
         if (!tab || !isWebUrl(tab.url) || tab.id !== payload?.tabId || new URL(tab.url).origin !== payload.origin) throw new Error('网站已变化');
         return { cookies: (await webSession.cookies.get({ url: tab.url })).length };
@@ -1139,6 +1304,22 @@ async function requestClose() {
       case 'navigate': if (typeof payload === 'string' && payload.length <= 8192) navigate(tab, payload); break;
       case 'home': navigate(tab, store.data.settings.homePage || HOME); break;
       case 'settings': openSettings(); break;
+      case 'pwa-install': {
+        if (!tab || payload?.tabId !== tab.id || !isWebUrl(tab.url) || new URL(tab.url).origin !== payload.origin) throw new Error('网站已变化，请重新打开网站信息');
+        await installPwa(tab, { privateMode: isPrivate, tabs, webSession, prompts, changed: sendState }); break;
+      }
+      case 'pwa-launch': {
+        if (isPrivate || typeof payload !== 'string') throw new Error('请在普通窗口中打开网站应用');
+        const record = pwaRecord(payload); if (!record) throw new Error('网站应用已不存在'); createPwaWindow(record); break;
+      }
+      case 'pwa-remove': {
+        if (isPrivate || typeof payload !== 'string') throw new Error('请在普通窗口中管理网站应用');
+        const record = pwaRecord(payload); if (!record) break;
+        const result = await prompts.ask({ kind: 'pwa-remove', title: '移除网站应用', message: '移除“' + record.name + '”？', detail: '只会移除 Luna 中的启动入口；网站数据会保留。', confirmLabel: '移除' });
+        if (!result.accepted) break;
+        const pwaWindow = pwaWindows.get(record.id); if (pwaWindow && !pwaWindow.isDestroyed()) pwaWindow.close();
+        sharedStore.data.installedApps = sharedStore.data.installedApps.filter(app => app.id !== record.id); sharedStore.save(); broadcast(); break;
+      }
       case 'extensions': if (isPrivate) return browserMenuAction('extensions'); else openExtensions(); break;
       case 'extension-launch': {
         const record = extensionManager.records.get(payload?.id);
@@ -1179,6 +1360,50 @@ async function requestClose() {
         applySettings({ ...store.data.settings, ...updates });
         return store.data.settings;
       }
+      case 'backup-export': {
+        if (isPrivate) throw new Error('请在普通窗口中导出浏览资料');
+        const includePasswords = payload?.includePasswords === true;
+        const downloadEntries = new Map();
+        for (const entry of [...(downloadManager?.jobs.values() || []), ...downloads.values(), ...(downloadHistory?.records.values() || [])]) if (entry?.id && !downloadEntries.has(entry.id)) downloadEntries.set(entry.id, entry);
+        const contents = createBackup({ data: sharedStore.data, downloads: [...downloadEntries.values()], passwords: sharedVault?.data,
+          includePasswords, passphrase: payload?.passphrase || '' });
+        const selected = await dialog.showSaveDialog(window, { title: '导出 Luna 浏览资料', defaultPath: path.join(app.getPath('downloads'), 'luna-backup-' + new Date().toISOString().slice(0, 10) + '.luna-backup'), filters: [{ name: 'Luna 备份', extensions: ['luna-backup'] }] });
+        if (selected.canceled || !selected.filePath) return null;
+        await fs.promises.writeFile(selected.filePath, contents, { mode: 0o600 });
+        toast('浏览资料已备份'); return { success: true, bytes: contents.length, includePasswords };
+      }
+      case 'backup-import': {
+        if (isPrivate) throw new Error('请在普通窗口中恢复浏览资料');
+        const selected = await dialog.showOpenDialog(window, { title: '选择 Luna 浏览资料备份', filters: [{ name: 'Luna 备份', extensions: ['luna-backup', 'json'] }], properties: ['openFile'] });
+        if (selected.canceled || !selected.filePaths[0]) return null;
+        const handle = await fs.promises.open(selected.filePaths[0], 'r'); let parsed;
+        try {
+          const stat = await handle.stat(); if (!stat.isFile() || stat.size > MAX_BACKUP_BYTES) throw new Error('备份文件超过 64 MB 或格式无效');
+          const contents = Buffer.alloc(stat.size); let offset = 0;
+          while (offset < contents.length) { const { bytesRead } = await handle.read(contents, offset, contents.length - offset, offset); if (!bytesRead) throw new Error('备份文件读取不完整'); offset += bytesRead; }
+          parsed = parseBackup(contents);
+        } finally { await handle.close(); }
+        const id = randomUUID(); backupImportStage = { id, parsed, time: Date.now() };
+        return { id, createdAt: parsed.createdAt, bookmarks: parsed.data.bookmarks.length, folders: parsed.data.bookmarkFolders.length, history: parsed.data.history.length,
+          downloads: parsed.downloads.length, hasPasswords: !!parsed.passwords };
+      }
+      case 'backup-restore': {
+        if (isPrivate || !backupImportStage || payload?.id !== backupImportStage.id || Date.now() - backupImportStage.time > 10 * 60 * 1000) throw new Error('备份已过期，请重新选择文件');
+        const { parsed } = backupImportStage, mode = payload?.mode === 'replace' ? 'replace' : payload?.mode === 'merge' ? 'merge' : null;
+        if (!mode) throw new Error('请选择合并或替换恢复');
+        const passwordData = parsed.passwords ? decryptPasswords(parsed.passwords, payload?.passphrase || '') : null;
+        const nextData = mergeData(sharedStore.data, parsed.data, mode);
+        const confirmed = await prompts.ask({ kind: 'browser-backup-restore', title: '恢复浏览资料', message: (mode === 'replace' ? '替换此设备上的浏览资料' : '合并备份中的浏览资料') + '？',
+          detail: '收藏 ' + parsed.data.bookmarks.length + ' 条 · 历史 ' + parsed.data.history.length + ' 条 · 下载记录 ' + parsed.downloads.length + ' 条' + (passwordData ? ' · 密码将重新加密保存' : ' · 本机密码会保留') + '。Cookie、缓存和已下载文件本身不包含在备份中。', confirmLabel: '恢复' });
+        if (!confirmed.accepted) return null;
+        let passwordResult = null;
+        if (passwordData) passwordResult = sharedVault.restore(passwordData, mode === 'replace');
+        if (mode === 'replace') downloadHistory.records.clear();
+        const downloadResult = downloadHistory.import(parsed.downloads);
+        sharedStore.data = nextData; applySettings(nextData.settings);
+        backupImportStage = null; broadcast();
+        toast('浏览资料已恢复'); return { success: true, bookmarks: nextData.bookmarks.length, history: nextData.history.length, downloads: downloadResult, passwords: passwordResult };
+      }
       case 'app-update-check':
         if (isPrivate) throw new Error('请在普通窗口中检查浏览器更新');
         return sharedUpdater.check();
@@ -1204,6 +1429,11 @@ async function requestClose() {
           throw error;
         } finally { updateInstalling = false; }
         return;
+      }
+      case 'appearance-preset': {
+        const appearance = presetAppearance(store.data.settings.appearance, payload);
+        applySettings({ ...store.data.settings, theme: payload === 'graphite' ? 'dark' : payload === 'default' ? store.data.settings.theme : 'light', appearance });
+        return appearance;
       }
       case 'appearance-update': {
         const appearance = patchAppearance(store.data.settings.appearance, payload);
@@ -1330,18 +1560,30 @@ async function requestClose() {
       case 'download-action': {
         const entry = downloadManager.jobs.get(payload?.id) || downloads.get(payload?.id) || downloadHistory.records.get(payload?.id);
         if (!entry) break;
-        if (entry.deleting) return;
+        if (['pause', 'cancel', 'remove', 'retry'].includes(payload.action)) { clearTimeout(entry.retryTimer); entry.retryTimer = null; entry.retryAt = null; }
+        if (entry.deleting || entry.deleteConfirming) return;
         if (payload.action === 'remove' || payload.action === 'delete-file') {
           if (payload.action === 'delete-file') {
             if (entry.status !== 'completed') throw new Error('只能删除已完成下载的文件');
-            entry.deleting = true; entry.error = ''; sendState();
+            entry.deleteConfirming = true; entry.error = '';
             try {
               const identity = await fileIdentity(entry.file).catch(error => { throw new Error(error.code === 'ENOENT' ? '文件已不存在，可移除这条记录' : error.message); });
               const confirmed = await prompts.ask({ kind: 'download-delete-file', title: '删除下载文件', message: '将“' + entry.name + '”移入回收站并移除记录？', detail: identity.real, confirmLabel: '删除文件' });
               if (!confirmed.accepted) return;
-              await trashFile(identity, { executable: process.execPath, appPath: app.isPackaged ? null : app.getAppPath() });
-            } catch (error) { entry.error = '删除失败：' + error.message; throw error; }
-            finally { entry.deleting = false; sendState(); }
+              entry.deleteConfirming = false; entry.deleting = true;
+              const deleting = trashFile(identity, { executable: process.execPath, appPath: app.isPackaged ? null : app.getAppPath() });
+              sendState(); toast('正在移入回收站：' + entry.name);
+              deleting.then(async () => {
+                if (downloadManager.jobs.has(entry.id)) await downloadManager.remove(entry.id);
+                else downloads.delete(entry.id);
+                downloadHistory.remove(entry.id);
+              }).catch(error => {
+                entry.error = '删除失败：' + error.message;
+                toast('删除文件失败：' + entry.name + '。记录已恢复，可重试。');
+              }).finally(() => { entry.deleting = false; sendState(); });
+              return true;
+            } catch (error) { entry.error = '删除失败：' + error.message; entry.deleteConfirming = false; entry.deleting = false; sendState(); throw error; }
+            finally { if (entry.deleteConfirming) { entry.deleteConfirming = false; sendState(); } }
           } else if (!entry.historical && !['completed', 'cancelled', 'interrupted'].includes(entry.status) || downloadManager.jobs.has(entry.id) && entry.status === 'interrupted') {
             const confirmed = await prompts.ask({ kind: 'download-remove', title: '移除下载', message: '取消此下载并移除记录？', detail: entry.name, confirmLabel: '取消并移除' }); if (!confirmed.accepted) return;
           }
@@ -1356,11 +1598,15 @@ async function requestClose() {
         if (payload.action === 'reveal' && entry.status === 'completed') shell.showItemInFolder(entry.file);
         if (downloadManager.jobs.has(entry.id)) await downloadManager.action(entry.id, payload.action, payload.value);
         else if (!entry.historical) {
-          if (payload.action === 'pause' && entry.status === 'progressing') { entry.item.pause(); entry.status = 'paused'; }
-          if (payload.action === 'resume' && entry.status === 'paused') { entry.item.resume(); entry.status = 'progressing'; }
-          if (payload.action === 'retry' && entry.status === 'interrupted' && isWebUrl(entry.url)) webSession.downloadURL(entry.url);
-          if (payload.action === 'cancel' && ['progressing', 'paused', 'waiting', 'interrupted'].includes(entry.status)) entry.item.cancel();
+          if (payload.action === 'pause' && ['retrying', 'queued', 'waiting', 'progressing'].includes(entry.status)) { try { if (!entry.terminal && !entry.item.isPaused()) entry.item.pause(); } catch {} entry.queuePaused = false; entry.status = 'paused'; }
+          if (payload.action === 'resume' && entry.status === 'paused') {
+            if (entry.retryCount > 0 && entry.retryMethod === 'GET') retryNative(entry, false);
+            else { entry.queuePaused = true; entry.status = 'queued'; refreshDownloadQueue(); }
+          }
+          if (payload.action === 'retry' && ['interrupted', 'retrying'].includes(entry.status)) retryNative(entry, false);
+          if (payload.action === 'cancel' && ['retrying', 'queued', 'progressing', 'paused', 'waiting', 'interrupted'].includes(entry.status)) { entry.queuePaused = false; entry.status = 'cancelled'; if (!entry.terminal) entry.item.cancel(); }
           if (payload.action === 'completion' && ['none', 'open', 'reveal'].includes(payload.value)) entry.completion = payload.value;
+          refreshDownloadQueue();
         }
         break;
       }

@@ -1,6 +1,6 @@
 (() => {
   const rows = new Map();
-  const statuses = { waiting: '等待保存', checking: '正在检查服务器', connecting: '正在连接', progressing: '正在下载', paused: '已暂停', interrupted: '下载中断', merging: '正在合并文件', completed: '下载完成', cancelled: '已取消' };
+   const statuses = { waiting: '等待保存', retrying: '等待自动重试', queued: '排队中', checking: '正在检查服务器', connecting: '正在连接', progressing: '正在下载', paused: '已暂停', interrupted: '下载中断', merging: '正在合并文件', completed: '下载完成', cancelled: '已取消' };
   const duration = seconds => seconds == null ? '—' : seconds < 60 ? seconds + ' 秒' : seconds < 3600 ? Math.floor(seconds / 60) + ' 分 ' + seconds % 60 + ' 秒' : Math.floor(seconds / 3600) + ' 小时';
   window.downloadUI = {
     render(list, entries, tools) {
@@ -45,14 +45,15 @@
         row.name.textContent = entry.name;
         const percent = entry.total ? (entry.received * 100 / entry.total).toFixed(1) : null;
          row.status.textContent = (statuses[entry.status] || entry.status) + ' · ' + bytes(entry.received) + (entry.total ? ' / ' + bytes(entry.total) + ' (' + percent + '%)' : '') + (entry.status === 'progressing' && entry.speed ? ' · ' + bytes(entry.speed) + '/s' : '');
-         if (entry.deleting) row.status.textContent = '正在移入回收站…';
+          if (entry.deleting) row.status.textContent = '正在移入回收站…';
+          else if (entry.status === 'retrying') row.status.textContent += ' · 第 ' + entry.retryCount + ' 次 · ' + Math.max(0, Math.ceil((entry.retryAt - Date.now()) / 1000)) + ' 秒后重试';
          row.root.setAttribute('aria-busy', String(entry.deleting === true));
         if (row.iconSource !== entry.icon) { setImage(row.icon, entry.icon, 'file'); row.iconSource = entry.icon; }
         row.progress.max = entry.total || 1;
         if (entry.total) row.progress.value = entry.received; else row.progress.removeAttribute('value');
         row.progress.hidden = ['completed', 'cancelled'].includes(entry.status);
         row.error.textContent = entry.error || ''; row.error.hidden = !entry.error;
-        row.buttons.pause.hidden = !['checking', 'progressing'].includes(entry.status);
+         row.buttons.pause.hidden = !['retrying', 'queued', 'waiting', 'checking', 'progressing'].includes(entry.status);
         row.buttons.resume.hidden = !['paused', 'interrupted'].includes(entry.status);
         row.buttons.resume.textContent = entry.status === 'interrupted' ? '重试' : entry.resumable ? '继续' : '重新开始';
         row.buttons.resume.dataset.action = !entry.managed && entry.status === 'interrupted' ? 'retry' : 'resume';

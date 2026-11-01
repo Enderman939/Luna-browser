@@ -80,6 +80,8 @@
       $('#menu-zoom-reset').disabled = !page; $('#menu-zoom-reset').textContent = (page ? tab.zoom : 100) + '%';
       $('#menu-fullscreen').title = state.fullscreen ? '退出全屏 (F11)' : '全屏 (F11)'; $('#menu-fullscreen').setAttribute('aria-label', $('#menu-fullscreen').title);
       $('#menu-split-label').textContent = state.split ? '退出分屏' : '分屏';
+      const installApp = menu.querySelector('[data-browser-action="install-pwa"]');
+      if (installApp) { installApp.hidden = !state.pwa?.canInstall; installApp.disabled = state.private === true; }
       for (const action of ['passwords','edge-store','chrome-store']) menu.querySelectorAll('[data-browser-action="'+action+'"]').forEach(button => { button.disabled = state.private === true; button.title = state.private ? '请在普通窗口管理密码或安装扩展' : ''; });
       menu.querySelector('[data-menu-submenu="extensions"]').disabled = false;
       $('#menu-ie-label').textContent = tab?.compatibility?.enabled ? '退出 IE 兼容模式' : '使用 IE 兼容模式重新加载';

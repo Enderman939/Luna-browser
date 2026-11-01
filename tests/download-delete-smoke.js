@@ -57,34 +57,36 @@ async function run() {
   await row('success').locator('[data-action="delete-file"]').click();
   let dialog = await dialogPage(page, '#confirmation-dialog[open][data-kind="download-delete-file"]');
   await red(dialog.locator('#confirmation-accept'));
+  assert.ok((await state()).downloads.some(item => item.name === 'success.txt'), 'keep the row visible while confirmation is pending');
   await dialog.locator('#confirmation-cancel').click();
-  await wait(async () => !(await state()).downloads.find(row => row.id === record('success').id).deleting, 'cancel restores state');
+  assert.ok((await state()).downloads.some(item => item.name === 'success.txt'), 'cancel keeps the row');
   assert.equal(fs.existsSync(files.success), true); assert.equal(fs.existsSync(marker), false);
 
   popup = await openDownloads(); await row('success').locator('[data-action="delete-file"]').click();
   dialog = await dialogPage(page, '#confirmation-dialog[open][data-kind="download-delete-file"]'); await dialog.locator('#confirmation-accept').click();
+  const removeStart = Date.now();
+  await wait(async () => (await state()).downloads.length === rows.length - 1, 'confirm hides row immediately');
+  assert.ok(Date.now() - removeStart < 1000, 'confirmation returns without waiting for the slow recycle helper');
   await wait(() => fs.existsSync(marker), 'blocking shell call started in helper');
   const started = Date.now();
   await command('new-tab'); assert.equal((await state()).tabs.length, 2);
   const responseMs = Date.now() - started;
   assert.ok(responseMs < 1200, 'browser responds while helper is blocked: ' + responseMs + 'ms');
-  const current = (await state()).downloads.find(row => row.id === record('success').id);
-  assert.equal(current.deleting, true);
+  const current = rows.find(row => row.name === 'success.txt');
   popup = await openDownloads();
-  await row('success').locator('[data-action="delete-file"]:disabled').waitFor();
-  assert.equal(await row('success').locator('[data-action="delete-file"]').textContent(), '正在删除…');
+  assert.equal(await row('success').count(), 0, 'pending recycle record is removed from the visible list');
   await command('download-action', { id: current.id, action: 'delete-file' });
   assert.equal((await state()).prompt, null, 'duplicate delete cannot open another confirmation');
   fs.mkdirSync(path.join(root, 'artifacts'), { recursive: true });
-  await popup.screenshot({ path: path.join(root, 'artifacts/download-delete-pending.png') });
-  await wait(async () => !(await state()).downloads.some(row => row.id === current.id), 'successful recycle removes record');
+  await wait(() => !fs.existsSync(files.success), 'successful background recycle moves file');
+  assert.equal((await state()).downloads.some(row => row.id === current.id), false, 'successful recycle removes the record');
   assert.equal(fs.existsSync(files.success), false);
 
   await row('failure').locator('[data-action="delete-file"]').click();
   dialog = await dialogPage(page, '#confirmation-dialog[open][data-kind="download-delete-file"]'); await dialog.locator('#confirmation-accept').click();
-  await wait(async () => (await state()).downloads.find(row => row.id === record('failure').id).error.includes('Synthetic recycle failure'), 'recycle failure reported');
+  const failedId = record('failure').id;
+  await wait(async () => (await state()).downloads.find(row => row.id === failedId)?.error.includes('Synthetic recycle failure'), 'recycle failure reported and record restored');
   assert.equal(fs.existsSync(files.failure), true);
-  assert.equal((await state()).downloads.find(row => row.id === record('failure').id).deleting, false);
   popup = await openDownloads(); await row('failure').locator('[data-action="delete-file"]:enabled').waitFor();
   await popup.screenshot({ path: path.join(root, 'artifacts/download-delete-error.png') });
 
@@ -92,12 +94,13 @@ async function run() {
   dialog = await dialogPage(page, '#confirmation-dialog[open][data-kind="download-delete-file"]');
   fs.writeFileSync(files.changed, 'different data after the confirmation opened');
   await dialog.locator('#confirmation-accept').click();
-  await wait(async () => (await state()).downloads.find(row => row.id === record('changed').id).error.includes('文件已变化'), 'changed file retained');
+  const changedId = record('changed').id;
+  await wait(async () => (await state()).downloads.find(row => row.id === changedId)?.error.includes('文件已变化'), 'changed file retained');
   assert.equal(fs.existsSync(files.changed), true);
   assert.deepEqual(errors, []);
   await closeApp(application, page, false); application = null;
   const persisted = new DownloadHistory(profile); assert.equal(persisted.records.size, 2);
-  const result = { passed: true, version, responseWhileShellBlockedMs: responseMs, checks: ['red list and confirmation actions in light/dark themes', 'cancel keeps file and record', 'slow recycle isolated from browser main thread', 'pending UI and duplicate deletion guard', 'actual recycle succeeds', 'recycle failure keeps record and allows retry', 'file changed after confirmation is preserved'], testedAt: new Date().toISOString() };
+  const result = { passed: true, version, responseWhileShellBlockedMs: responseMs, checks: ['red list and confirmation actions in light/dark themes', 'cancel keeps file and record', 'confirm removes row immediately and slow recycle runs in background', 'browser stays responsive and duplicate deletion is ignored', 'actual recycle succeeds', 'recycle failure restores the record and allows retry', 'file changed after confirmation is preserved'], testedAt: new Date().toISOString() };
   fs.writeFileSync(path.join(root, 'artifacts/download-delete-result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result, null, 2));
 }
 run().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {

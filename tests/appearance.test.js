@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULT_APPEARANCE, sanitizeAppearance, patchAppearance, appearanceTokens, contrast } = require('../src/ui/appearance-model');
+const { DEFAULT_APPEARANCE, PRESETS, presetAppearance, sanitizeAppearance, patchAppearance, appearanceTokens, contrast } = require('../src/ui/appearance-model');
 const { sanitizeSettings } = require('../src/core');
 
 test('old settings receive an independent default appearance', () => {
@@ -31,4 +31,12 @@ test('custom backgrounds keep readable text while automatic regions follow theme
     const tokens = appearanceTokens(patchAppearance(appearance, { section: 'regions', key: 'settings', values: { color } }), false);
     assert.ok(contrast(tokens.regions.settings.bg, tokens.regions.settings.ink) >= 4.5);
   }
+});
+test('appearance presets provide safe complete palettes', () => {
+  for (const key of Object.keys(PRESETS)) {
+    const appearance = presetAppearance(DEFAULT_APPEARANCE, key);
+    assert.equal(Object.keys(appearance.regions).length, 8);
+    for (const region of Object.values(appearance.regions)) assert.ok(!region.color || /^#[a-f\d]{6}$/i.test(region.color));
+  }
+  assert.throws(() => presetAppearance(DEFAULT_APPEARANCE, 'unknown'));
 });

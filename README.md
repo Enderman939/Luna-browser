@@ -2,16 +2,35 @@
 
 一个使用 Electron / Chromium 加载真实网页的桌面浏览器，提供 Windows x64 成品，以及 macOS Apple Silicon（M 系列、arm64）适配与构建流程。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前版本：**1.1.2**，使用 **Electron 44.7.2**。该版本的 GitHub Release 标题为 **1.1.1-icon fix**；1.1.2 版本号让现有自动更新器可以正常检测到它。Windows 版支持 Windows 10 及以上的 x64 系统；Mac 版原生构建仍待验证。
+当前本地版本：**1.2.0**，使用 **Electron 44.7.2**。Windows 版支持 Windows 10 及以上的 x64 系统；macOS arm64 构建和成品回归由 Apple Silicon CI 负责验证。
 
 双击 `start.cmd` 启动本地正式成品。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
-旧程序仍在运行时，可将新成品构建到 `dist/release/版本号`。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品；当前本地构建位于 `dist/release/1.1.2`。退出旧版后再启动即可切换。
+旧程序仍在运行时，新成品构建到 `dist/release/版本号`。浏览器目录和 ZIP 保存在版本目录；Windows 安装器与其校验文件独立保存在 `installer/` 子目录。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品。退出旧版后再启动即可切换。
+
+### 1.2.0 更新内容
+
+- Google 登录使用匹配当前 Chromium 版本的 Chrome User-Agent 和 Client Hints；Google OAuth 登录弹窗保留真实 opener 与窗口通信。
+- Windows 任务栏、窗口和安装快捷方式统一使用 `luna.browser` AppUserModelID 及随应用打包的 Luna ICO。
+- 下载失败默认自动重试 3 次、间隔 5 秒；在 **设置 → 下载** 可关闭重试或调整次数与间隔。暂停、取消、HTTP 客户端错误和磁盘错误不会自动重试。
+- 标签栏空间不足时自动收窄为标签图标；激活标签仍保留标题，并保留悬停关闭入口。
+- 标签页和设置页加入更柔和的转场与配色预设，并遵守系统减少动态效果设置。
+- 浏览器 ZIP 与单文件 Windows 安装器分目录构建、独立校验。
+
+Google 登录回归只在未输入账号或密码的情况下访问登录页。当前构建环境访问 Google 超时，因此实际认证成功状态无法在此网络环境中确认。
+
+### 1.1.3 修复
+
+- 删除下载文件确认后立即从列表移除，回收站操作在后台独立进程继续执行；成功后清理记录，失败时恢复记录并提供重试。浏览器不再等待系统回收站处理完成。
+- 下载设置新增同时下载的任务数；托管下载和原生下载统一排队，暂停与恢复不会丢失任务。
+- 隐私与数据设置新增 `.luna-backup` 备份和恢复。备份默认不包含密码，选择包含密码时使用独立口令加密；恢复支持合并或替换。
+- 隐私与数据设置新增网站权限中心，可以撤销已保存的网站授权。
+- 支持读取同源网站 Manifest 并安装独立网站应用窗口，应用数据隔离且敏感权限默认拒绝。
 
 ### 1.1.2 修复
 
 - Windows 应用图标采用标准 ICO 格式，包含 16、24、32、48、64、128 和 256 像素图层，让任务栏、标题栏和快捷方式使用合适尺寸。
 
-本地 Windows 成品位于 `dist/release/1.1.2`；任务栏图标修复已作为 **1.1.1-icon fix** 发布。
+本地 Windows 图标修复成品位于 `dist/release/1.1.2`；任务栏图标修复已作为 **1.1.1-icon fix** 发布。
 
 ### 1.1.1 更新内容
 
@@ -35,13 +54,19 @@
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载 `luna-1.1.2-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 ZIP 位于 `dist/release/1.1.2`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载最新正式版 `luna-版本号-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 1.2.0 ZIP 位于 `dist/release/1.2.0`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
 
-**M 系列 Mac**：适配代码和原生构建流程已提供，尚待 macOS 原生构建与验证完成后交付。构建输出 `luna-版本号-darwin-arm64.dmg` 和 ZIP；DMG 打开后把 `luna.app` 拖入 **Applications／应用程序**，也可解压 ZIP 后移动整个 `luna.app`。运行不需要 Node.js 或 Rosetta。
+本地 Windows 安装程序为 `dist/release/1.2.0/installer/Luna-Setup-1.2.0-win32-x64.exe`。界面采用 React 和 Amicro 动效，保留 Luna 深色月牙风格，并支持系统的减少动态效果设置。默认安装到当前用户的 `LocalAppData\Programs\Luna Browser`，可创建桌面和开始菜单快捷方式，并在 Windows“已安装的应用”中提供卸载入口。安装程序不需要管理员权限，也不会删除已有的 Luna 浏览资料。
+
+安装前校验浏览器载荷的 SHA-256；安装期间窗口继续响应，关闭操作会等待安装完成。可选择空文件夹或由此安装器管理的 Luna 目录，更新前需关闭该目录中的 Luna。升级失败会恢复旧程序，卸载按安装清单移除应用文件，保留额外放入目录的个人文件。单文件 EXE 包含界面运行时和浏览器载荷，因此比免安装 ZIP 大。成品校验值见同目录的 `SHA256SUMS.txt`。
+
+源码构建安装器使用 `npm run build:release`：浏览器目录和 ZIP 位于 `dist/release/1.2.0`，安装器及其 SHA-256 文件位于 `dist/release/1.2.0/installer`。构建需要 7-Zip；构建过程使用 Windows 自带的 .NET Framework 编译器生成带 Luna 图标的自解压启动器，捆绑 React 界面运行时。`npm run test:installer-react` 验证最终 EXE 启动与临时目录清理、安装响应、快捷方式、卸载登记、程序启动、升级与卸载；测试使用独立安装路径和卸载登记键。完整的打包回归可运行 `node scripts/validate-windows-release.mjs`。
+
+**M 系列 Mac**：仓库已提供 Apple Silicon 原生构建、成品 smoke 和归档校验流程，CI 在 Pull Request 或手动运行时生成并验证 `luna-版本号-darwin-arm64.dmg` 和 ZIP；本地 Windows 环境不会生成 Mac 成品。DMG 打开后把 `luna.app` 拖入 **Applications／应用程序**，也可解压 ZIP 后移动整个 `luna.app`。运行不需要 Node.js 或 Rosetta。
 
 Mac 包采用 ad-hoc 本地签名，尚未通过 Apple Developer ID 签名和公证。首次打开若被 macOS 拦截，请在 **系统设置 → 隐私与安全性 → 仍要打开** 中确认。详细平台差异、构建与验证见 [Apple Silicon 版说明](docs/macos-arm64.md)。Mac 的独立校验文件为 `SHA256SUMS-macos-arm64.txt`。
 
-Windows 成品和 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-FileHash .\luna-1.1.2-win32-x64.zip -Algorithm SHA256` 校验文件。
+Windows 成品和 Release 附有 `SHA256SUMS.txt`；浏览器 ZIP 与安装器各自独立校验。可用 PowerShell 的 `Get-FileHash .\luna-1.2.0-win32-x64.zip -Algorithm SHA256` 校验文件。
 
 ## 启动
 
@@ -51,7 +76,7 @@ Windows 成品和 Release 附有 `SHA256SUMS.txt`。可用 PowerShell 的 `Get-F
 
 ```text
 dist/
-  release/  正式版，目前为 1.1.2
+  release/  正式版，目前本地为 1.2.0（浏览器 ZIP 与目录；安装器在 1.2.0/installer）
   beta/     本地体验版（如有）
 ```
 
@@ -69,7 +94,7 @@ npm start
 
 ## 功能
 
-- 多标签：创建、切换、关闭、拖动排序、固定、复制和静音；可关闭其他／右侧未固定标签，移动到新窗口或已有同会话窗口，弹窗链接自动进入新标签。
+- 多标签：创建、切换、关闭、拖动排序、固定、复制和静音；可关闭其他／右侧未固定标签，移动到新窗口或已有同会话窗口，弹窗链接自动进入新标签。新标签页会插在来源标签页后面，关闭当前标签页会回到最近访问过的仍打开标签页。
 - 多窗口：Ctrl+N 新建窗口，各窗口独立管理标签，普通窗口共享收藏、密码和网站登录状态。
 - 无痕浏览：Ctrl+Shift+N 打开隔离会话，默认使用内存存储；自动拦截已知广告和追踪域名，发送 DNT / GPC 隐私偏好，限制第三方 Cookie 与 WebRTC 非代理 UDP。关闭全部无痕窗口后清除网站数据，不记录历史、不保存密码；扩展需逐个明确授权。
 - 分屏：两个网页并排浏览，可选择现有标签或新地址、拖动分隔线、切换操作侧、交换左右及退出。
@@ -291,6 +316,7 @@ npm run test:smoke   # 启动真实 Electron 检查浏览流程
 npm run test:updates # 检查更新界面、下载校验和失败重试、确认退出、独立 Windows 安装进程与程序备份
 npm run test:download-delete # 检查删除红字、慢回收站时浏览器响应、取消、重复点击、失败及文件变更校验
 npm run test:download-notifications # 检查完成卡片、焦点、角标、文件操作、前后台、无痕和设置开关
+npm run test:download-retry # 检查自动重试设置持久化、真实中断下载自动续传与关闭重试
 npm run test:features # 检查多线程下载、favicon 与真实 Chrome 扩展
 npm run test:privacy # 检查内置弹窗、数据清理与关闭恢复
 npm run test:store   # 检查 Edge / Chrome 商店安装与错误回调

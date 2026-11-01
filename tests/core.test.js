@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { HOME, SETTINGS, DEFAULT_SETTINGS, resolveAddress, resolveWebsite, isWebUrl, sanitizeData, sanitizeSettings, recentSites } = require('../src/core');
 const { Store } = require('../src/store');
+const { browserUserAgent, chromeUserAgent, chromeUserAgentMetadata, isGoogleOAuthPopup } = require('../src/browser-identity');
 
 test('addresses resolve to web URLs, search queries, or the home page', () => {
   assert.equal(resolveAddress(''), HOME);
@@ -45,6 +46,21 @@ test('settings reject invalid values and support existing profiles', () => {
   assert.equal(migrated.downloadNotifications, true); assert.equal(migrated.autoUpdate, true);
   assert.equal(sanitizeSettings({ downloadNotifications: false, autoUpdate: false }).downloadNotifications, false);
   assert.equal(sanitizeSettings({ autoUpdate: false }).autoUpdate, false);
+  assert.equal(sanitizeSettings({ downloadConcurrency: 5 }).downloadConcurrency, 5);
+  assert.equal(sanitizeSettings({ downloadConcurrency: 99 }).downloadConcurrency, DEFAULT_SETTINGS.downloadConcurrency);
+});
+test('browser sessions use the matching Chrome engine identity and Google OAuth popup routing', () => {
+  const userAgent = chromeUserAgent('Mozilla/5.0 Electron/44.7.2 Chrome/152.0.1.0 Safari/537.36', 'win32');
+  assert.match(userAgent, /Windows NT 10\.0; Win64; x64/); assert.match(userAgent, /Chrome\/152\.0\.1\.0/);
+  assert.doesNotMatch(userAgent, /Electron|luna|Luma/);
+  const metadata = chromeUserAgentMetadata('win32', 'x64', '10.0.22631');
+  assert.equal(metadata.platform, 'Windows'); assert.equal(metadata.bitness, '64'); assert.equal(metadata.platformVersion, '15.0.0');
+  assert.match(metadata.fullVersionList.find(brand => brand.brand === 'Google Chrome').version, /^\d+\.\d+\.\d+\.\d+$/);
+  assert.doesNotMatch(browserUserAgent('Mozilla/5.0 Electron/44.7.2 Chrome/152.0.1.0'), /Electron/);
+  assert.equal(isGoogleOAuthPopup('https://accounts.google.com/o/oauth2/v2/auth'), true);
+  assert.equal(isGoogleOAuthPopup('https://sub.accounts.google.com/signin'), true);
+  assert.equal(isGoogleOAuthPopup('https://accounts.google.com.attacker.example/'), false);
+  assert.equal(isGoogleOAuthPopup('file:///accounts.google.com'), false);
 });
 test('recent websites deduplicate origins and put manual shortcuts first', () => {
   const history = [{ url: 'https://one.example/a', title: 'Latest' }, { url: 'https://one.example/b', title: 'Older' }, { url: 'https://two.example', title: 'Second' }, { url: 'file:///bad' }];

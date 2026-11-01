@@ -5,7 +5,10 @@ function observeRequests(web) {
   const requests = new Map();
   try {
     web.debugger.attach('1.3');
-    web.debugger.sendCommand('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }).catch(() => {});
+    const { chromeUserAgent, chromeUserAgentMetadata } = require('./browser-identity');
+    web.debugger.sendCommand('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }).then(() => web.debugger.sendCommand('Emulation.setUserAgentOverride', {
+      userAgent: chromeUserAgent(web.session.getUserAgent()), userAgentMetadata: chromeUserAgentMetadata(),
+    })).catch(() => {});
     web.debugger.on('message', (_, method, params) => {
       if (method !== 'Network.requestWillBeSent') return;
       const request = params.request;

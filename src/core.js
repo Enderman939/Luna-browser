@@ -9,10 +9,12 @@ const SETTINGS = 'luna://settings';
 const EXTENSIONS = 'luna://extensions';
 const { DEFAULT_APPEARANCE, sanitizeAppearance } = require('./ui/appearance-model');
 const { sanitizeBookmarks } = require('./bookmarks');
+const { sanitizeInstalledApps } = require('./pwa-apps');
 const DEFAULT_SETTINGS = Object.freeze({
   searchEngine: 'baidu', theme: 'light', showBookmarks: true, showHome: true,
   showShortcuts: true, startup: 'restore', homePage: '', downloadPath: '', downloadNotifications: true,
-  parallelDownloads: true, downloadThreads: 8,
+  parallelDownloads: true, downloadThreads: 8, downloadConcurrency: 3,
+  downloadRetryAttempts: 3, downloadRetryDelay: 5,
   savePasswords: true, autofillPasswords: true,
   searchSuggestions: true, autoUpdate: true,
   appearance: DEFAULT_APPEARANCE,
@@ -28,6 +30,9 @@ function sanitizeSettings(value = {}) {
     if (typeof value[key] === 'boolean') settings[key] = value[key];
   }
   if ([1, 2, 4, 8, 16].includes(value.downloadThreads)) settings.downloadThreads = value.downloadThreads;
+  if ([1, 2, 3, 4, 5, 8].includes(value.downloadConcurrency)) settings.downloadConcurrency = value.downloadConcurrency;
+  if (Number.isInteger(value.downloadRetryAttempts) && value.downloadRetryAttempts >= 0 && value.downloadRetryAttempts <= 10) settings.downloadRetryAttempts = value.downloadRetryAttempts;
+  if ([1, 3, 5, 10, 30, 60].includes(value.downloadRetryDelay)) settings.downloadRetryDelay = value.downloadRetryDelay;
   if (typeof value.homePage === 'string' && isWebUrl(value.homePage)) settings.homePage = value.homePage.slice(0, 8192);
   if (typeof value.downloadPath === 'string' && value.downloadPath.length < 4096) settings.downloadPath = value.downloadPath;
   settings.appearance = sanitizeAppearance(value.appearance);
@@ -80,6 +85,7 @@ function sanitizeData(data = {}) {
   if (!data || typeof data !== 'object') data = {};
   const cleanList = value => Array.isArray(value) ? value.map(cleanEntry).filter(Boolean) : [];
   const bookmarks = sanitizeBookmarks(data.bookmarks, data.bookmarkFolders);
+  const installedApps = sanitizeInstalledApps(data.installedApps);
   return {
     ...bookmarks,
     history: cleanList(data.history).slice(0, 10000),
@@ -94,6 +100,7 @@ function sanitizeData(data = {}) {
     shortcuts: [...new Map(cleanList(data.shortcuts).map(entry => [entry.url, entry])).values()].slice(0, 8),
     settings: sanitizeSettings(data.settings),
     icons: Object.fromEntries(Object.entries(data.icons && typeof data.icons === 'object' ? data.icons : {}).filter(([origin, icon]) => isWebUrl(origin) && typeof icon === 'string' && /^data:image\/(?:png|jpeg|svg\+xml);base64,/.test(icon) && icon.length <= 128 * 1024).slice(-100)),
+    installedApps,
   };
 }
 

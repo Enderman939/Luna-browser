@@ -151,6 +151,9 @@ function render(newState) {
   window.workspaceUI.update(state);
   window.essentialsUI.update(state);
   window.importUI?.update(state);
+  window.backupUI?.update(state);
+  window.sitePermissionsUI?.update(state);
+  window.pwaAppsUI?.update(state);
   window.browserDialogs.sync(state.prompt);
   const tab = activeTab();
   if (!tab) return;
@@ -213,8 +216,19 @@ function render(newState) {
   if (tab.url === EXTENSIONS) renderExtensions();
   updateBounds();
 }
+let tabsSignature = '';
+function sizeTabs() {
+  const container = $('#tabs'), regular = [...container.querySelectorAll('.tab:not(.pinned)')];
+  const width = regular.length ? Math.min(...regular.map(tab => tab.getBoundingClientRect().width)) : 218;
+  container.classList.toggle('compact', width < 100); container.classList.toggle('dense', width < 68);
+}
+new ResizeObserver(sizeTabs).observe($('#tabs'));
 function renderTabs() {
   const container = $('#tabs');
+  const signature = JSON.stringify([state.tabs, state.activeId, state.groups, lastCustomIcons, state.settings.appearance?.icons]);
+  if (signature === tabsSignature) return;
+  tabsSignature = signature;
+  const previousPositions = new Map([...container.querySelectorAll('.tab')].map(node => [node.dataset.id, node.getBoundingClientRect()]));
   const scroll = container.scrollLeft;
   container.replaceChildren();
   const renderedGroups = new Set();
@@ -259,6 +273,16 @@ function renderTabs() {
     if (tab.audible || tab.muted) { const sound = el('button', 'tab-sound'); setIcon(sound, tab.muted ? 'mute' : 'volume'); sound.title = tab.muted ? '取消静音' : '静音标签页'; sound.setAttribute('aria-label', sound.title); sound.onclick = event => { event.stopPropagation(); command('tab-action', { id: tab.id, action: 'mute' }); }; item.insertBefore(sound, close); }
   });
   container.scrollLeft = scroll;
+  sizeTabs();
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for (const node of container.querySelectorAll('.tab')) {
+    const before = previousPositions.get(node.dataset.id), after = node.getBoundingClientRect();
+    if (!reduced && !window.lunaTabDragging) {
+      const delta = before ? before.x - after.x : 0;
+      if (!before || Math.abs(delta) > 1) node.animate([{ opacity: before ? 1 : 0, transform: `translate(${delta}px,${before ? 0 : 5}px)` }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' });
+    }
+    if (node.classList.contains('selected')) node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduced ? 'instant' : 'smooth' });
+  }
 }
 function renderBookmarks() {
   $('#bookmark-items').replaceChildren();
@@ -299,8 +323,14 @@ function renderShortcuts() {
   add.append(symbol, el('span', 'shortcut-title', '添加快捷方式')); add.onclick = addShortcut; $('#shortcuts').append(add);
 }
 function renderSettings() {
-  const names = { search: '搜索引擎', appearance: '外观', startup: '启动与主页', import: '导入浏览资料', downloads: '下载', passwords: '密码管理器', privacy: '隐私与数据', about: '关于 luna' };
+  const names = { search: '搜索引擎', appearance: '外观', startup: '启动与主页', apps: '网站应用', import: '导入浏览资料', downloads: '下载', passwords: '密码管理器', privacy: '隐私与数据', about: '关于 luna' };
   const query = $('#settings-search').value.trim().toLowerCase();
+  const nextSection = query ? 'search' : settingsSection;
+  const pane = $('.settings-main');
+  if (pane.dataset.section !== nextSection) {
+    pane.dataset.section = nextSection;
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) $('.settings-groups').animate([{ opacity: .3, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.16,1,.3,1)' });
+  }
   $('#settings-title').textContent = query ? '搜索结果' : names[settingsSection];
   document.querySelectorAll('[data-settings-section]').forEach(button => button.classList.toggle('selected', !query && button.dataset.settingsSection === settingsSection));
   let visible = 0;
@@ -450,7 +480,7 @@ $('#shortcut-form').onsubmit = async event => {
 };
 $('#customize').onclick = () => openSettings('appearance');
 document.querySelectorAll('[data-settings-section]').forEach(button => button.onclick = () => { settingsSection = button.dataset.settingsSection; $('#settings-search').value = ''; renderSettings(); $('.settings-main').scrollTop = 0; });
-document.querySelectorAll('[data-setting]').forEach(control => control.onchange = () => command('update-settings', { [control.dataset.setting]: control.type === 'checkbox' ? control.checked : control.dataset.setting === 'downloadThreads' ? Number(control.value) : control.value }));
+document.querySelectorAll('[data-setting]').forEach(control => control.onchange = () => command('update-settings', { [control.dataset.setting]: control.type === 'checkbox' ? control.checked : ['downloadThreads', 'downloadConcurrency', 'downloadRetryAttempts', 'downloadRetryDelay'].includes(control.dataset.setting) ? Number(control.value) : control.value }));
 $('#settings-search').oninput = renderSettings;
 $('#homepage-form').onsubmit = async event => {
   event.preventDefault();
@@ -497,6 +527,6 @@ bridge.onShortcut(action => {
   else if (action === 'groups') window.workspaceUI.showGroups();
   else openPanel(action);
 });
-bridge.onSettingsSection(section => { if (['search','appearance','startup','downloads','privacy','passwords','about'].includes(section)) { settingsSection = section; $('#settings-search').value = ''; renderSettings(); } });
+bridge.onSettingsSection(section => { if (['search','appearance','startup','apps','import','downloads','privacy','passwords','about'].includes(section)) { settingsSection = section; $('#settings-search').value = ''; renderSettings(); } });
 bridge.onFindResult(result => { $('#find-count').textContent = result.active + ' / ' + result.matches; });
 command('state').then(initial => { if (initial && !state.tabs.length) render(initial); });

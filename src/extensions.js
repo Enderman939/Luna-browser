@@ -15,7 +15,7 @@ class ExtensionManager extends EventEmitter {
     super();
     this.directory = directory; this.session = session; this.window = window;
     this.privateMode = privateMode; this.partition = partition;
-    session.setUserAgent(session.getUserAgent().replace(/\s(?:Electron|luna(?:-browser)?|Luma)\/[\d.]+/gi, ''));
+    require('./browser-identity').configureSessionIdentity(session);
     this.file = path.join(directory, 'extensions-data.json');
     this.webStorePath = path.join(directory, 'webstore-extensions');
     this.records = new Map(); this.installing = false;

@@ -26,7 +26,7 @@ try {
   assert.equal(files.some(file => /^\/session-[^/]+\.md$/.test(file)), false);
   const sums = fs.readFileSync(path.join(path.dirname(report.zip), 'SHA256SUMS-macos-arm64.txt'), 'utf8');
   for (const file of [report.zip, report.dmg]) assert.ok(sums.includes(createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + path.basename(file)));
-  for (const file of ['macos-smoke-result.json', 'features-result.json', 'import-search-result.json', 'private-security-result.json']) {
+  for (const file of ['macos-smoke-result.json', 'features-result.json', 'import-search-result.json', 'private-security-result.json', 'backup-pwa-result.json']) {
     const result = JSON.parse(fs.readFileSync(path.join('artifacts', file), 'utf8')); assert.equal(result.passed, true); if (result.version) assert.equal(result.version, report.version);
     assert.ok(Date.parse(result.testedAt) >= Date.parse(report.testedAt));
   }

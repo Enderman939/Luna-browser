@@ -6,5 +6,6 @@
 - adm-zip 0.6.1: MIT. Source: https://github.com/cthackers/adm-zip . Included in the application archive.
 - qrcode 1.5.4: MIT. Source: https://github.com/soldair/node-qrcode . Included with its license in the application archive.
 - @mozilla/readability 0.6.0: Apache-2.0. Source: https://github.com/mozilla/readability . Included with its license in the application archive.
+- Installer UI uses React 19, ReactDOM 19 and Framer Motion 12 (MIT); selected FadeUp, MorphLoader and GlowButton behavior is adapted from Amicro (MIT). Installer bundle includes `scripts/installer-react/THIRD_PARTY_NOTICES.txt`.
 
 luna's package metadata declares GPL-3.0-only for compatibility with its extension bridge. The application source is provided in this project directory.

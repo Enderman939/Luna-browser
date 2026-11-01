@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { pipeline } = require('node:stream/promises');
 const { markDownloadedFile } = require('./download-origin');
+const { retryPolicy, retryable } = require('./download-retry');
 
 function splitRanges(total, count) {
   if (!Number.isSafeInteger(total) || total <= 0) throw new Error('Invalid file size');
@@ -45,12 +46,16 @@ async function writeAll(handle, buffer) {
 }
 
 class DownloadManager extends EventEmitter {
-  constructor({ directory, fetch, onComplete }) {
+  constructor({ directory, fetch, onComplete, concurrency = 3, downloadRetryAttempts = 3, downloadRetryDelay = 5 }) {
     super();
     this.directory = directory;
     this.fetch = fetch;
     this.onComplete = onComplete;
     this.jobs = new Map();
+    this.concurrency = [1, 2, 3, 4, 5, 8].includes(concurrency) ? concurrency : 3;
+    this.externalSlots = 0;
+    this.retryPolicy = retryPolicy({ downloadRetryAttempts, downloadRetryDelay });
+    this.stopping = false;
     this.file = path.join(directory, 'download-jobs.json');
     fs.mkdirSync(path.join(directory, 'download-parts'), { recursive: true });
     this.restore();
@@ -68,19 +73,20 @@ class DownloadManager extends EventEmitter {
     }
     return candidate;
   }
-  create({ url, file, name, headers = {}, threads = 8, overwrite = false }) {
+  create({ url, file, name, headers = {}, threads = 8, overwrite = false, retryCount = 0 }) {
     if (!/^https?:\/\//i.test(url) || !path.isAbsolute(file)) throw new Error('下载地址或位置无效');
     const id = crypto.randomUUID();
     const job = {
       id, url, file, name: name || path.basename(file), headers, overwrite,
-      total: 0, received: 0, status: 'waiting', mode: 'checking', resumable: false,
+      total: 0, received: 0, status: 'queued', mode: 'checking', resumable: false,
       threads: [], requestedThreads: Math.min(16, Math.max(1, Number(threads) || 8)),
       speed: 0, eta: null, speedLimit: 0, completion: 'none', error: '', icon: '',
       validator: null, createdAt: Date.now(), controller: null, running: null,
       lastReceived: 0, lastTime: Date.now(), nextSlot: 0, rateController: new AbortController(),
+      retryCount, retryAt: null, retryTimer: null,
     };
     this.jobs.set(id, job);
-    this.persist(); this.start(job); return id;
+    this.persist(); this.schedule(); this.changed(); return id;
   }
   publicJob(job) {
     return {
@@ -88,16 +94,54 @@ class DownloadManager extends EventEmitter {
       status: job.status, mode: job.mode, resumable: job.resumable, speed: job.speed, eta: job.eta,
       speedLimit: job.speedLimit, completion: job.completion, error: job.error, icon: job.icon,
       managed: true, createdAt: job.createdAt,
+      retryCount: job.retryCount || 0, retryAt: job.retryAt,
       threads: job.threads.map(part => ({ ...part })),
     };
   }
   snapshot() { return [...this.jobs.values()].map(job => this.publicJob(job)); }
   changed() { this.emit('change'); }
+  activeCount() { return [...this.jobs.values()].filter(job => job.running && !['paused', 'cancelled', 'completed'].includes(job.status)).length; }
+  configureRetry(settings) {
+    this.retryPolicy = retryPolicy(settings);
+    for (const job of this.jobs.values()) {
+      if (job.status !== 'retrying') continue;
+      clearTimeout(job.retryTimer); job.retryTimer = null; job.retryAt = null;
+      if (job.retryCount > this.retryPolicy.attempts || !this.retryPolicy.attempts) job.status = 'interrupted';
+      else this.deferRetry(job);
+    }
+    this.persist(); this.changed();
+  }
+  deferRetry(job) {
+    job.status = 'retrying'; job.retryAt = Date.now() + this.retryPolicy.delay;
+    job.retryTimer = setTimeout(() => {
+      job.retryTimer = null; job.retryAt = null;
+      if (job.status !== 'retrying' || this.stopping) return;
+      job.status = 'queued'; this.schedule(); this.changed();
+    }, this.retryPolicy.delay);
+    job.retryTimer.unref();
+  }
+  setConcurrency(value) {
+    if (![1, 2, 3, 4, 5, 8].includes(value)) throw new Error('同时下载数量无效');
+    this.concurrency = value; this.schedule();
+  }
+  setExternalSlots(value) {
+    this.externalSlots = Math.max(0, Math.min(100, Math.floor(Number(value) || 0)));
+    this.schedule();
+  }
+  schedule() {
+    if (this.stopping) return;
+    let available = Math.max(0, this.concurrency - this.externalSlots - this.activeCount());
+    for (const job of this.jobs.values()) {
+      if (!available) break;
+      if (job.status !== 'queued' || job.running) continue;
+      this.start(job); available--;
+    }
+  }
   tick() {
     let active = false;
     const now = Date.now();
     for (const job of this.jobs.values()) {
-      if (['progressing', 'checking', 'merging'].includes(job.status)) active = true;
+      if (['progressing', 'checking', 'merging', 'retrying'].includes(job.status)) active = true;
       const elapsed = Math.max(1, now - job.lastTime);
       const speed = Math.max(0, job.received - job.lastReceived) * 1000 / elapsed;
       job.speed = job.status === 'progressing' ? Math.round(job.speed ? job.speed * 0.5 + speed * 0.5 : speed) : 0;
@@ -107,19 +151,20 @@ class DownloadManager extends EventEmitter {
     if (active) { this.changed(); if (++this.ticks % 3 === 0) this.persist(); }
   }
   start(job) {
-    if (job.running) return;
+    if (job.running || job.status !== 'queued' || this.activeCount() >= this.concurrency - this.externalSlots) return;
     job.controller = new AbortController();
     job.status = 'checking'; job.error = ''; job.nextSlot = 0;
     job.lastReceived = job.received; job.lastTime = Date.now();
     job.running = this.run(job).catch(error => {
-      if (['paused', 'cancelled'].includes(job.status)) return;
+      if (['paused', 'cancelled', 'completed'].includes(job.status)) return;
       job.status = 'interrupted'; job.error = error.message || '连接已中断';
       job.controller.abort();
       for (const part of job.threads) if (part.status === 'progressing') part.status = 'interrupted';
+      if (!this.stopping && retryable(error) && job.retryCount < this.retryPolicy.attempts) { job.retryCount++; this.deferRetry(job); }
     }).finally(() => {
       job.running = null; job.speed = 0; job.eta = null;
       if (['paused', 'cancelled', 'interrupted'].includes(job.status)) for (const part of job.threads) if (part.status !== 'completed') part.status = job.status;
-      this.persist(); this.changed();
+      this.persist(); this.changed(); this.schedule();
     });
     this.changed();
   }
@@ -254,11 +299,12 @@ class DownloadManager extends EventEmitter {
   async action(id, action, value) {
     const job = this.jobs.get(id);
     if (!job) return;
-    if (action === 'pause' && ['waiting', 'checking', 'progressing'].includes(job.status)) {
+    if (['pause', 'resume', 'cancel'].includes(action)) { clearTimeout(job.retryTimer); job.retryTimer = null; job.retryAt = null; }
+    if (action === 'pause' && ['queued', 'retrying', 'waiting', 'checking', 'progressing'].includes(job.status)) {
       job.status = 'paused'; job.controller?.abort();
       await job.running;
-    } else if (action === 'resume' && ['paused', 'interrupted'].includes(job.status)) {
-      await job.running; this.start(job);
+    } else if (action === 'resume' && ['paused', 'interrupted', 'retrying'].includes(job.status)) {
+      await job.running; job.retryCount = 0; job.status = 'queued'; job.error = ''; this.schedule();
     } else if (action === 'cancel' && !['completed', 'cancelled'].includes(job.status)) {
       job.status = 'cancelled'; job.controller?.abort(); await job.running;
       await fs.promises.rm(this.partDirectory(job), { recursive: true, force: true });
@@ -293,7 +339,7 @@ class DownloadManager extends EventEmitter {
       for (const record of records.slice(-100)) {
         if (!/^[a-f0-9-]{36}$/.test(record.id) || !/^https?:\/\//i.test(record.url) || !path.isAbsolute(record.file) || !Array.isArray(record.threads) || record.threads.length > 16) continue;
         if (!['checking', 'range', 'single'].includes(record.mode)) continue;
-        const job = { ...record, headers: {}, controller: null, running: null, speed: 0, eta: null, lastReceived: 0, lastTime: Date.now(), nextSlot: 0, rateController: new AbortController(), completion: 'none' };
+        const job = { ...record, headers: {}, controller: null, running: null, speed: 0, eta: null, lastReceived: 0, lastTime: Date.now(), nextSlot: 0, rateController: new AbortController(), completion: 'none', retryCount: Number.isInteger(record.retryCount) ? Math.max(0, Math.min(10, record.retryCount)) : 0, retryAt: null, retryTimer: null };
         if (!['completed', 'cancelled'].includes(job.status)) {
           job.status = 'paused'; job.received = 0;
           for (const part of job.threads) {
@@ -308,7 +354,12 @@ class DownloadManager extends EventEmitter {
     } catch { /* corrupt checkpoints are ignored */ }
   }
   async shutdown() {
+    this.stopping = true;
     clearInterval(this.timer);
+    for (const job of this.jobs.values()) {
+      clearTimeout(job.retryTimer); job.retryTimer = null; job.retryAt = null;
+      if (job.status === 'retrying') job.status = 'paused';
+    }
     await Promise.all([...this.jobs.values()].filter(job => job.running).map(job => job.status === 'merging' ? job.running : this.action(job.id, 'pause')));
     this.persist();
   }

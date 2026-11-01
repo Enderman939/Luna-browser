@@ -24,9 +24,20 @@ const out = values.out || `dist/${channel}`;
 for (const knownChannel of ['release', 'beta']) {
   if (path.resolve(out) === path.resolve('dist', knownChannel) && knownChannel !== channel) throw new Error('版本类型与输出目录不一致');
 }
-const baselineDirectory = path.resolve('dist/release/luna-win32-x64');
+async function findBaselineDirectory() {
+  const direct = path.resolve('dist/release/luna-win32-x64');
+  if (await fs.access(path.join(direct, 'luna.exe')).then(() => true, () => false)) return direct;
+  const root = path.resolve('dist/release');
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  const candidates = entries.filter(entry => entry.isDirectory()).map(entry => path.join(root, entry.name, 'luna-win32-x64')).filter(directory => path.resolve(path.dirname(directory)) !== path.resolve(out));
+  for (const directory of candidates.sort((a, b) => path.basename(b).localeCompare(path.basename(a), undefined, { numeric: true }))) {
+    if (await fs.access(path.join(directory, 'luna.exe')).then(() => true, () => false)) return directory;
+  }
+  return null;
+}
+const baselineDirectory = await findBaselineDirectory();
 let baseline = null;
-if (await fs.access(path.join(baselineDirectory, 'luna.exe')).then(() => true, () => false)) {
+if (baselineDirectory) {
   baseline = {
     ...measurePackage(baselineDirectory),
     ...(process.platform === 'win32' ? await diskSize(baselineDirectory) : {}),
@@ -48,8 +59,15 @@ const checksums = require('electron/checksums.json');
 const output = await packager({
   dir: '.', name: 'luna', platform: 'win32', arch: 'x64',
   icon: 'src/ui/assets/app.ico', out, overwrite: true, asar: true, prune: true,
+  win32metadata: {
+    CompanyName: 'Enderman939',
+    FileDescription: 'Luna Browser',
+    OriginalFilename: 'luna.exe',
+    ProductName: 'Luna Browser',
+    InternalName: 'luna',
+  },
   download: { checksums },
-  extraResource: ['src/native/luna-ie-host.exe', 'src/native/luna-private-cleanup.exe', 'src/native/luna-browser-import.exe'],
+  extraResource: ['src/native/luna-ie-host.exe', 'src/native/luna-private-cleanup.exe', 'src/native/luna-browser-import.exe', 'src/ui/assets/app.ico'],
   afterExtract: [trimRuntime],
   afterPrune: [trimDependencies],
   ignore: packageIgnore,

@@ -16,3 +16,15 @@ function icoLayers(file) {
 test('Windows application icon contains standard taskbar and title-bar PNG layers', () => {
   assert.deepEqual(icoLayers(path.join(root, 'src/ui/assets/app.ico')).map(layer => layer.size), [16, 24, 32, 48, 64, 128, 256]);
 });
+test('Windows browser windows use the ICO at runtime and apply it explicitly', () => {
+  const source = fs.readFileSync(path.join(root, 'src/main.js'), 'utf8');
+  assert.match(source, /process\.platform === 'win32' && app\.isPackaged \? path\.join\(process\.resourcesPath, 'app\.ico'\)/);
+  assert.match(source, /window\.setIcon\(icon\)/);
+  const identity = fs.readFileSync(path.join(root, 'src/windows-identity.js'), 'utf8');
+  assert.match(identity, /APP_ID = 'luna\.browser'/); assert.match(identity, /setAppDetails/);
+});
+test('Windows packaging overrides Electron product metadata', () => {
+  const source = fs.readFileSync(path.join(root, 'scripts/package.mjs'), 'utf8');
+  for (const value of ['ProductName: \'Luna Browser\'', 'FileDescription: \'Luna Browser\'', "OriginalFilename: 'luna.exe'", "InternalName: 'luna'"]) assert.match(source, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(source, /src\/ui\/assets\/app\.ico/);
+});

@@ -9,7 +9,7 @@ const { popupPage } = require('./popover-helpers');
 const { DEFAULT_APPEARANCE } = require('../src/ui/appearance-model');
 const root = path.resolve(__dirname, '..'), profile = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-appearance-'));
 const artifacts = path.join(root, 'artifacts'), sourceImage = path.join(profile, 'selected-wallpaper.png');
-let application, page, base;
+let application, page, base; const checks = [];
 const errors = [];
 const server = http.createServer((request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Appearance webpage</title><body style="background:#f4f4f4;height:1500px"><h1>Real webpage</h1><p>Browser appearance is separate from website content.</p></body>'); });
 async function wait(fn, label) { const start = Date.now(); while (Date.now() - start < 15000) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 40)); } throw new Error('Timed out: ' + label); }
@@ -32,8 +32,11 @@ async function selectFile(file) { await application.evaluate(({ dialog }, file) 
 async function run() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); base = 'http://127.0.0.1:' + server.address().port;
   fs.mkdirSync(artifacts, { recursive: true }); fs.copyFileSync(path.join(root, 'src/ui/assets/app.png'), sourceImage);
-  await launch(); await openAppearance();
-  assert.deepEqual((await state()).settings.appearance, DEFAULT_APPEARANCE);
+   await launch(); await openAppearance();
+   assert.deepEqual((await state()).settings.appearance, DEFAULT_APPEARANCE);
+   await page.locator('[data-preset="sage"]').click(); await wait(async() => (await state()).settings.appearance.regions.chrome.color === '#eaf0e9', 'sage palette');
+   await page.locator('[data-preset="graphite"]').click(); await wait(async() => (await state()).settings.theme === 'dark' && (await state()).settings.appearance.regions.chrome.color === '#202126', 'graphite palette and theme');
+   await page.locator('[data-preset="default"]').click(); await wait(async() => !(await state()).settings.appearance.regions.chrome.color, 'default palette'); checks.push('one-click Luna, graphite and nature-inspired appearance presets');
   await color('chrome', '#dbe8ef'); await color('titlebar', '#133b4d'); await color('settings', '#edf2e8'); await color('sidebar', '#242d27');
   await color('home', '#f4ebdf'); await color('surface', '#ffffff'); await color('menu', '#35251e'); await color('tools', '#152233');
   assert.equal(await css('.chrome', 'background-color'), 'rgb(219, 232, 239)'); assert.equal(await css('.titlebar', 'background-color'), 'rgb(19, 59, 77)');

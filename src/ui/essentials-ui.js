@@ -8,6 +8,8 @@
     $('#site-info-origin').textContent = site.origin;
     $('#site-info-connection').textContent = site.legacy ? 'IE 兼容模式的连接由 Windows 管理；此处的网站授权适用于 Chromium 页面。' : site.secure ? '此页面使用 HTTPS 加密连接。' : '此页面未建立有效的 HTTPS 连接。请勿在未加密的网站输入敏感信息。';
     $('#site-info-session').textContent = state.private ? '仅本次无痕会话' : '保存在此设备';
+    $('#site-app-install').hidden = state.private || !state.pwa?.canInstall;
+    $('#site-app-install').textContent = state.pwa?.installed ? '更新并打开网站应用' : '安装网站应用';
     const details = $('#site-certificate-details'); details.replaceChildren();
     const cert = site.security;
     for (const [label, value] of [['协议', cert?.protocol], ['证书主体', cert?.subjectName], ['颁发者', cert?.issuer], ['有效期起', cert?.validFrom && new Date(cert.validFrom * 1000).toLocaleString()], ['有效期止', cert?.validTo && new Date(cert.validTo * 1000).toLocaleString()], ['加密算法', cert?.cipher]]) {
@@ -29,6 +31,7 @@
     const summary = await call('site-data-summary', displayedSite); if (summary && $('#site-info-dialog').open) $('#site-info-cookies').textContent = '当前页面可访问 ' + summary.cookies + ' 个 Cookie（不会显示 Cookie 值）。';
   };
   $('#site-info-close').onclick = () => $('#site-info-dialog').close();
+  $('#site-app-install').onclick = () => call('pwa-install', displayedSite);
   $('#site-info-dialog').addEventListener('close', () => window.browserDialogs.overlays());
   $('#site-info-reload').onclick = async () => { $('#site-info-dialog').close(); await call('modal-state', false); await call('overlay', false); await call('reload'); };
   let inputTimer;

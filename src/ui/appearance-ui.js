@@ -10,6 +10,11 @@
   }
   const update = values => call('appearance-update', { section: 'regions', key: region, values });
   const updateIcons = values => call('appearance-update', { section: 'icons', values });
+  for (const [key, preset] of Object.entries(model.PRESETS)) {
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.preset = key; button.className = 'appearance-preset'; button.setAttribute('aria-label', preset.name + '配色');
+    const preview = document.createElement('span'); preview.className = 'preset-stage'; preview.style.setProperty('--preset-bar', preset.colors[1] || '#dedede'); preview.style.setProperty('--preset-bg', preset.colors[2] || '#fafafa'); preview.style.setProperty('--preset-card', preset.colors[5] || '#ffffff'); preview.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+    const name = document.createElement('strong'); name.textContent = preset.name; const detail = document.createElement('small'); detail.textContent = preset.detail; button.append(preview, name, detail); button.onclick = () => call('appearance-preset', key); $('appearance-presets').append(button);
+  }
   function textValue(id, value) { if (document.activeElement !== $(id)) $(id).value = value; }
   for (const [key, spec] of Object.entries(model.REGIONS)) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = spec.name; button.dataset.region = key;
@@ -20,6 +25,10 @@
   }
   $('appearance-icon-target').value = target;
   function render() {
+    for (const button of $('appearance-presets').children) {
+      const preset = model.PRESETS[button.dataset.preset]; const selected = Object.keys(model.REGIONS).every((key, index) => current.regions[key].color === preset.colors[index]);
+      button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
+    }
     const spec = model.REGIONS[region], value = current.regions[region], color = tokens.regions[region].bg;
     for (const button of $('appearance-regions').children) {
       const selected = button.dataset.region === region; button.classList.toggle('selected', selected); button.setAttribute('aria-selected', selected); button.tabIndex = selected ? 0 : -1;

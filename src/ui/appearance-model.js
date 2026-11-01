@@ -26,6 +26,19 @@
     regions: Object.freeze(Object.fromEntries(Object.keys(REGIONS).map(key => [key, EMPTY_REGION]))),
     icons: Object.freeze({ color: '', size: 18, weight: 1.6, shape: 'round', custom: Object.freeze({}) }),
   });
+  const PRESETS = {
+    default: { name: '经典 Luna', detail: '跟随主题 · 纯粹黑白', colors: ['', '', '', '', '', '', '', ''] },
+    graphite: { name: '石墨', detail: '深色 · 安静专注', colors: ['#202126', '#15161a', '#191a1f', '#191a1f', '#15161a', '#28292f', '#28292f', '#191a1f'] },
+    mist: { name: '云雾', detail: '浅色 · 清透柔和', colors: ['#f2f5fa', '#e2e8f0', '#f7f9fc', '#f7f9fc', '#edf1f7', '#ffffff', '#ffffff', '#f7f9fc'] },
+    sage: { name: '鼠尾草', detail: '浅色 · 自然舒缓', colors: ['#eaf0e9', '#d7e2d5', '#f4f7f1', '#f4f7f1', '#e5ece1', '#fafcf8', '#fafcf8', '#f4f7f1'] },
+    sand: { name: '暖砂', detail: '浅色 · 温暖纸感', colors: ['#f2ece3', '#e4d9c9', '#faf6ef', '#faf6ef', '#eee5d8', '#fffdf8', '#fffdf8', '#faf6ef'] },
+  };
+  function presetAppearance(current, key) {
+    if (!Object.hasOwn(PRESETS, key)) throw new Error('未知的主题预设');
+    const result = sanitizeAppearance(current);
+    Object.keys(REGIONS).forEach((region, index) => { result.regions[region].color = PRESETS[key].colors[index]; });
+    return result;
+  }
   const isColor = value => typeof value === 'string' && /^#[a-f\d]{6}$/i.test(value);
   const isAsset = value => typeof value === 'string' && /^[a-f\d]{64}\.png$/.test(value);
   const assetURL = value => isAsset(value) ? 'luna-asset://image/' + value : '';
@@ -87,5 +100,5 @@
       '--icon-cap': appearance.icons.shape === 'square' ? 'butt' : 'round', '--icon-join': appearance.icons.shape === 'square' ? 'miter' : 'round' });
     return { appearance, vars, regions };
   }
-  return { REGIONS, ICONS, DEFAULT_APPEARANCE, sanitizeAppearance, patchAppearance, appearanceTokens, assetURL, isAsset, isColor, contrast };
+  return { REGIONS, ICONS, PRESETS, presetAppearance, DEFAULT_APPEARANCE, sanitizeAppearance, patchAppearance, appearanceTokens, assetURL, isAsset, isColor, contrast };
 });

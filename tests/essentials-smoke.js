@@ -66,7 +66,7 @@ async function run() {
   await command(page, 'new-tab', base + '/fourth'); await wait(async () => !(await active(page)).loading, 'fourth'); const fourth = await active(page);
   await command(page, 'tab-action', { id: fourth.id, action: 'pin' }); await command(page, 'tab-action', { id: fourth.id, action: 'pin' });
   assert.equal((await state(page)).tabs[0].id, third.id); assert.equal((await state(page)).tabs[0].pinned, true);
-  await wait(async () => await page.locator('.tab').evaluateAll(nodes => nodes.map(node => Number(node.dataset.id)).join(',')) === [third.id, first.id, fourth.id].join(','), 'pin/unpin reflected in actual tab DOM');
+  await wait(async () => await page.locator('.tab').evaluateAll(nodes => nodes.map(node => Number(node.dataset.id)).join(',')) === [third.id, fourth.id, first.id].join(','), 'pin/unpin preserves the new tab beside its opener');
   await page.locator('.tab[data-id="' + fourth.id + '"]').dragTo(page.locator('.tab[data-id="' + first.id + '"]'));
   await wait(async () => (await state(page)).tabs.map(tab => tab.id).join(',') === [third.id, fourth.id, first.id].join(','), 'drag reorder');
   await remote(first.webContentsId, 'window.liveMarker={value:123};document.getElementById("field").value="unsaved"');

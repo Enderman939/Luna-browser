@@ -1,6 +1,6 @@
 # macOS Apple Silicon 版
 
-Luna 1.1.1 源码，Electron 44.7.2，面向 M1 及后续 M 系列芯片的原生 arm64 构建。当前适配与构建脚本已提供，Mac 成品仍待原生构建与验证，尚未发布对应附件。运行不需要 Node.js 或 Rosetta。
+Electron 44.7.2，面向 M1 及后续 M 系列芯片的原生 arm64 构建。仓库提供原生构建、成品 smoke 和归档校验脚本；Windows 工作区不会生成 Mac 成品，GitHub Actions 的 Apple Silicon runner 负责构建与验证。运行不需要 Node.js 或 Rosetta。
 
 ## 安装与启动
 

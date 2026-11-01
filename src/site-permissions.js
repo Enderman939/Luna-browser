@@ -42,6 +42,15 @@ class SitePermissions {
     if (value === 'ask') delete permissions[key]; else permissions[key] = value;
     this.store.data.siteSettings[origin] = { ...previous, time: Date.now(), permissions }; this.store.save(); this.changed();
   }
+  clear(origin) {
+    if (!secureOrigin(origin)) throw new Error('无效的网站权限');
+    const previous = this.store.data.siteSettings[origin];
+    if (!previous) return;
+    const next = { ...previous }; delete next.permissions;
+    if (Object.keys(next).length <= 1) delete this.store.data.siteSettings[origin];
+    else { next.time = Date.now(); this.store.data.siteSettings[origin] = next; }
+    this.store.save(); this.changed();
+  }
   check(web, permission, requesting, details = {}) {
     if (!this.owner(web)) return false;
     const origin = requestOrigin(web, details.securityOrigin || details.requestingUrl || requesting, details);
@@ -71,5 +80,12 @@ class SitePermissions {
     try { return await task; } finally { this.pending.delete(id); }
   }
   snapshot(origin) { return Object.entries(PERMISSIONS).map(([key, label]) => ({ key, label, value: this.decision(origin, key) })); }
+  list() {
+    return Object.entries(this.store.data.siteSettings).map(([origin, value]) => {
+      if (!secureOrigin(origin)) return null;
+      const permissions = this.snapshot(origin).filter(permission => permission.value !== 'ask');
+      return permissions.length ? { origin, time: value.time, permissions } : null;
+    }).filter(Boolean).sort((a, b) => b.time - a.time);
+  }
 }
 module.exports = { SitePermissions, PERMISSIONS, permissionKeys, secureOrigin, requestOrigin };

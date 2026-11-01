@@ -16,11 +16,13 @@ async function fixture(t, options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-download-test-'));
   const data = crypto.randomBytes(options.size || 4 * 1024 * 1024);
   const requests = [], behavior = { interrupt: false, version: 'one' };
+  let activeRanges = 0, maxActiveRanges = 0;
   const server = http.createServer((request, response) => {
     let start = 0, end = data.length - 1;
     const requested = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range || '');
     const ranged = request.url !== '/single' && requested;
     if (ranged) { start = Number(requested[1]); end = Number(requested[2]); }
+    if (ranged && end > start) { activeRanges++; maxActiveRanges = Math.max(maxActiveRanges, activeRanges); response.once('close', () => activeRanges--); }
     requests.push({ range: request.headers.range, start, end, ifRange: request.headers['if-range'] });
     const headers = { 'Content-Length': end - start + 1, ETag: '"' + behavior.version + '"' };
     if (ranged) headers['Content-Range'] = `bytes ${start}-${request.url === '/bad' && end > 0 ? end - 1 : end}/${data.length}`;
@@ -38,13 +40,13 @@ async function fixture(t, options = {}) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = 'http://127.0.0.1:' + server.address().port;
   const managers = [];
-  const manager = () => { const value = new DownloadManager({ directory, fetch }); managers.push(value); return value; };
+  const manager = options => { const value = new DownloadManager({ directory, fetch, downloadRetryAttempts: 0, ...options }); managers.push(value); return value; };
   t.after(async () => {
     await Promise.all(managers.map(value => value.shutdown()));
     await new Promise(resolve => server.close(resolve));
     fs.rmSync(directory, { recursive: true, force: true });
   });
-  return { directory, data, requests, behavior, base, manager };
+  return { directory, data, requests, behavior, base, manager, get maxActiveRanges() { return maxActiveRanges; } };
 }
 test('segments cover a file exactly, and malformed ranges are rejected', () => {
   const ranges = splitRanges(101, 8);
@@ -106,6 +108,32 @@ test('servers without Range support safely use a single connection', async t => 
   assert.equal(manager.jobs.get(id).mode, 'single'); assert.equal(manager.jobs.get(id).threads.length, 1);
   assert.deepEqual(fs.readFileSync(file), f.data); assert.equal(f.requests.length, 1);
 });
+test('managed downloads queue at the configured concurrency and begin when a slot opens', async t => {
+  const f = await fixture(t, { size: 256 * 1024, delay: 3 }), manager = f.manager({ concurrency: 1 });
+  const first = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'queue-1.bin'), threads: 1 });
+  const second = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'queue-2.bin'), threads: 1 });
+  assert.equal(manager.jobs.get(second).status, 'queued');
+  assert.equal(manager.activeCount(), 1);
+  await waitFor(() => manager.jobs.get(first).status === 'completed' && manager.jobs.get(second).status === 'completed');
+  assert.equal(f.maxActiveRanges, 1);
+  const third = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'queue-3.bin'), threads: 1 });
+  const fourth = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'queue-4.bin'), threads: 1 });
+  manager.setConcurrency(2);
+  await waitFor(() => manager.jobs.get(third).status === 'completed' && manager.jobs.get(fourth).status === 'completed');
+  assert.equal(f.maxActiveRanges, 2);
+  assert.throws(() => manager.setConcurrency(99), /同时下载数量无效/);
+});
+test('pausing a queued download holds it until it is resumed', async t => {
+  const f = await fixture(t, { size: 256 * 1024, delay: 3 }), manager = f.manager({ concurrency: 1 });
+  const first = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'pause-1.bin'), threads: 1 });
+  const second = manager.create({ url: f.base + '/ranged', file: path.join(f.directory, 'pause-2.bin'), threads: 1 });
+  await manager.action(second, 'pause');
+  await waitFor(() => manager.jobs.get(first).status === 'completed');
+  assert.equal(manager.jobs.get(second).status, 'paused');
+  assert.equal(manager.activeCount(), 0);
+  await manager.action(second, 'resume'); await waitFor(() => manager.jobs.get(second).status === 'completed');
+  assert.deepEqual(fs.readFileSync(path.join(f.directory, 'pause-2.bin')), f.data);
+});
 test('bad range responses never produce a completed corrupt file', async t => {
   const f = await fixture(t), manager = f.manager(), file = path.join(f.directory, 'invalid.bin');
   const id = manager.create({ url: f.base + '/bad', file, threads: 4 });
@@ -120,6 +148,38 @@ test('network interruption resumes without losing or duplicating bytes', async t
   f.behavior.interrupt = false;
   await manager.action(id, 'resume'); await waitFor(() => manager.jobs.get(id).status === 'completed');
   assert.deepEqual(fs.readFileSync(file), f.data);
+});
+test('network interruption automatically retries when enabled', async t => {
+  const f = await fixture(t), manager = f.manager({ downloadRetryAttempts: 1, downloadRetryDelay: 1 }), file = path.join(f.directory, 'automatic-retry.bin');
+  f.behavior.interrupt = true;
+  const id = manager.create({ url: f.base + '/ranged', file, threads: 4 });
+  await waitFor(() => manager.jobs.get(id).status === 'retrying');
+  assert.equal(manager.jobs.get(id).retryCount, 1);
+  f.behavior.interrupt = false;
+  await waitFor(() => manager.jobs.get(id).status === 'completed', 10000);
+  assert.deepEqual(fs.readFileSync(file), f.data);
+});
+test('automatic retry can be disabled and never replays the request', async t => {
+  const f = await fixture(t), manager = f.manager({ downloadRetryAttempts: 0 }), file = path.join(f.directory, 'no-retry.bin');
+  f.behavior.interrupt = true;
+  const id = manager.create({ url: f.base + '/ranged', file, threads: 2 });
+  await waitFor(() => manager.jobs.get(id).status === 'interrupted');
+  const requests = f.requests.length;
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  assert.equal(manager.jobs.get(id).status, 'interrupted');
+  assert.equal(manager.jobs.get(id).retryCount, 0);
+  assert.equal(f.requests.length, requests, 'zero retries must not issue another request');
+});
+test('retry policy ignores disk and protocol errors but accepts transient failures', () => {
+  const { retryPolicy, retryable } = require('../src/download-retry');
+  assert.deepEqual(retryPolicy({ downloadRetryAttempts: 4, downloadRetryDelay: 10 }), { attempts: 4, delay: 10000 });
+  assert.deepEqual(retryPolicy({}), { attempts: 3, delay: 5000 });
+  assert.deepEqual(retryPolicy({ downloadRetryAttempts: 99, downloadRetryDelay: 7 }), { attempts: 3, delay: 5000 });
+  assert.equal(retryable(Object.assign(new Error('磁盘写入失败'), { code: 'ENOSPC' })), false);
+  assert.equal(retryable(new Error('服务器返回 HTTP 404')), false);
+  assert.equal(retryable(new Error('服务器返回 HTTP 503')), true);
+  assert.equal(retryable(new Error('连接超时，请重试')), true);
+  assert.equal(retryable(new Error('服务器的分段响应发生变化，请重试下载')), false);
 });
 test('changed file validators force a complete restart of the cached segments', async t => {
   const f = await fixture(t), manager = f.manager(), file = path.join(f.directory, 'changed.bin');

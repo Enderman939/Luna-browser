@@ -81,6 +81,23 @@ class PasswordVault {
     if (added) this.commit({ ...this.data, entries: next });
     return { added, skipped };
   }
+  restore(value, replace = false) {
+    this.check();
+    if (!value || !Array.isArray(value.entries) || value.entries.length > 5000 || !Array.isArray(value.blocked) || value.blocked.length > 5000) throw new Error('密码备份数据无效');
+    const now = Date.now(), previousCount = this.data.entries.length, entries = replace ? [] : [...this.data.entries], keys = new Set(entries.map(entry => entry.origin + '\n' + entry.username));
+    for (const entry of value.entries) {
+      const clean = credential(entry), key = clean.origin + '\n' + clean.username;
+      if (keys.has(key)) { if (replace) continue; else continue; }
+      if (entries.length >= 5000) throw new Error('恢复后密码数量超过 5000 条');
+      keys.add(key); entries.push({ ...clean, id: /^[\da-f-]{36}$/.test(entry.id || '') && !entries.some(item => item.id === entry.id) ? entry.id : randomUUID(),
+        createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : now, updatedAt: Number.isFinite(entry.updatedAt) ? entry.updatedAt : now });
+    }
+    const blocked = new Set(replace ? [] : this.data.blocked);
+    for (const origin of value.blocked) { const safe = credentialOrigin(origin); if (!safe) throw new Error('密码备份包含无效的网站'); blocked.add(safe); }
+    if (blocked.size > 5000) throw new Error('恢复后密码例外数量超过 5000 条');
+    this.commit({ entries, blocked: [...blocked] });
+    return { entries: entries.length, added: entries.length - (replace ? 0 : previousCount), skipped: value.entries.length - (entries.length - (replace ? 0 : previousCount)) };
+  }
   block(origin, blocked) {
     this.check(); origin = credentialOrigin(origin); if (!origin) throw new Error('无效的网站。');
     if (blocked && this.data.blocked.length >= 5000 && !this.data.blocked.includes(origin)) throw new Error('例外名单已满。');
