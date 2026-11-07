@@ -16,7 +16,7 @@ async function run() {
   application = await electron.launch({ executablePath: process.env.LUNA_EXECUTABLE || require('electron'), args: process.env.LUNA_EXECUTABLE ? ['--no-proxy-server'] : [root, '--no-proxy-server'], env });
   page = await application.firstWindow(); page.on('pageerror', error => errors.push(error.message)); await page.waitForSelector('.tab.selected');
   const runtime = await application.evaluate(({ app, Menu, safeStorage }) => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, electron: process.versions.electron, chrome: process.versions.chrome, encryption: safeStorage.isEncryptionAvailable(), nativeMenu: !!Menu.getApplicationMenu() }));
-  assert.equal(runtime.platform, 'darwin'); assert.equal(runtime.arch, 'arm64'); assert.equal(runtime.electron, '44.7.2'); assert.equal(runtime.nativeMenu, true); assert.equal(runtime.encryption, true);
+  assert.equal(runtime.platform, 'darwin'); assert.equal(runtime.arch, 'arm64'); assert.equal(runtime.electron, require('../package.json').devDependencies.electron); assert.equal(runtime.nativeMenu, true); assert.equal(runtime.encryption, true);
   assert.equal(await page.locator('body').getAttribute('data-platform'), 'darwin'); assert.equal(await page.locator('.window-controls').isVisible(), false);
   assert.match(await page.locator('#new-tab').getAttribute('title'), /Cmd/);
   await page.locator('#address').press('Meta+t'); await wait(async () => (await command('state')).tabs.length === 2, 'Command T');

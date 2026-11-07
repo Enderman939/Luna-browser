@@ -1,7 +1,7 @@
 {
   "name": "luna-browser",
   "productName": "Luna Browser",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "luna 桌面浏览器",
   "main": "src/main.js",
   "author": "Enderman939",
@@ -60,6 +60,10 @@
     "test:browser-menu": "node tests/browser-menu-smoke.js",
     "pretest:workspace": "npm run prepare:ui",
     "test:workspace": "node tests/workspace-smoke.js",
+    "pretest:tab-window": "npm run prepare:ui",
+    "test:tab-window": "node tests/tab-window-smoke.js",
+    "pretest:session-restore": "npm run prepare:ui",
+    "test:session-restore": "node tests/session-restore-smoke.js",
     "build:ie": "node scripts/build-ie-host.mjs",
     "pretest:compatibility": "npm run prepare:ui && npm run build:ie",
     "test:compatibility": "node tests/compatibility-smoke.js",
@@ -83,7 +87,7 @@
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
-    "electron": "44.7.2",
+    "electron": "45.2.3",
     "esbuild": "^0.28.2",
     "framer-motion": "12.23.24",
     "motion-dom": "12.23.23",

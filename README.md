@@ -2,10 +2,22 @@
 
 一个使用 Electron / Chromium 加载真实网页的桌面浏览器，提供 Windows x64 成品，以及 macOS Apple Silicon（M 系列、arm64）适配与构建流程。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前本地版本：**1.2.0**，使用 **Electron 44.7.2**。Windows 版支持 Windows 10 及以上的 x64 系统；macOS arm64 构建和成品回归由 Apple Silicon CI 负责验证。
+当前版本：**1.2.1**，使用 **Electron 45.2.3 / Chromium 156.0.8078.80 / Node.js 24.22.2**。Windows 版支持 Windows 10 及以上的 x64 系统；macOS arm64 构建和成品回归由 Apple Silicon CI 负责验证。
 
 双击 `start.cmd` 启动本地正式成品。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
 旧程序仍在运行时，新成品构建到 `dist/release/版本号`。浏览器目录和 ZIP 保存在版本目录；Windows 安装器与其校验文件独立保存在 `installer/` 子目录。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品。退出旧版后再启动即可切换。
+
+### 1.2.1 修复
+
+- 内核升级并锁定到 Electron 45.2.3（Chromium 156.0.8078.80、Node.js 24.22.2），浏览器与安装器均使用此运行时。
+
+- 修复启动恢复网页时导航取消或加载失败被忽略的空白标签。未提交的启动取消仅重试一次，真实失败显示错误页；回归测试验证页面内容、脚本执行及原生网页视图实际绘制。
+
+- 修复网页新窗口跳转时的 `Invalid webContents` 主进程异常，保留 Chromium 原始页面、POST 数据和 opener 通信。
+- 取消 30 个标签页的硬性上限，会话保存与恢复也不再截断标签；标签栏随可用宽度持续压缩。
+- 标签拖到 Luna 窗口外可拆成新窗口，拖到另一个同会话 Luna 窗口可合并；保留原网页进程、未保存表单和 JavaScript 状态。移走最后一个标签时关闭空窗口。
+- 普通窗口和无痕窗口之间仍保持隔离。此行为类似 Edge/Chrome，但不支持把网页进程直接移入 Edge/Chrome。
+- 新增回归覆盖网页弹窗、45 标签压缩与重启恢复、冷启动页面内容和脚本、DOM 拖出/合并、取消拖动和无效拖动拒绝。
 
 ### 1.2.0 更新内容
 
@@ -54,19 +66,19 @@ Google 登录回归只在未输入账号或密码的情况下访问登录页。�
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载最新正式版 `luna-版本号-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 1.2.0 ZIP 位于 `dist/release/1.2.0`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载最新正式版 `luna-版本号-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 1.2.1 ZIP 位于 `dist/release/1.2.1`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
 
-本地 Windows 安装程序为 `dist/release/1.2.0/installer/Luna-Setup-1.2.0-win32-x64.exe`。界面采用 React 和 Amicro 动效，保留 Luna 深色月牙风格，并支持系统的减少动态效果设置。默认安装到当前用户的 `LocalAppData\Programs\Luna Browser`，可创建桌面和开始菜单快捷方式，并在 Windows“已安装的应用”中提供卸载入口。安装程序不需要管理员权限，也不会删除已有的 Luna 浏览资料。
+本地 Windows 安装程序为 `dist/release/1.2.1/installer/Luna-Setup-1.2.1-win32-x64.exe`。界面采用 React 和 Amicro 动效，保留 Luna 深色月牙风格，并支持系统的减少动态效果设置。默认安装到当前用户的 `LocalAppData\Programs\Luna Browser`，可创建桌面和开始菜单快捷方式，并在 Windows“已安装的应用”中提供卸载入口。安装程序不需要管理员权限，也不会删除已有的 Luna 浏览资料。
 
 安装前校验浏览器载荷的 SHA-256；安装期间窗口继续响应，关闭操作会等待安装完成。可选择空文件夹或由此安装器管理的 Luna 目录，更新前需关闭该目录中的 Luna。升级失败会恢复旧程序，卸载按安装清单移除应用文件，保留额外放入目录的个人文件。单文件 EXE 包含界面运行时和浏览器载荷，因此比免安装 ZIP 大。成品校验值见同目录的 `SHA256SUMS.txt`。
 
-源码构建安装器使用 `npm run build:release`：浏览器目录和 ZIP 位于 `dist/release/1.2.0`，安装器及其 SHA-256 文件位于 `dist/release/1.2.0/installer`。构建需要 7-Zip；构建过程使用 Windows 自带的 .NET Framework 编译器生成带 Luna 图标的自解压启动器，捆绑 React 界面运行时。`npm run test:installer-react` 验证最终 EXE 启动与临时目录清理、安装响应、快捷方式、卸载登记、程序启动、升级与卸载；测试使用独立安装路径和卸载登记键。完整的打包回归可运行 `node scripts/validate-windows-release.mjs`。
+源码构建安装器使用 `npm run build:release`：浏览器目录和 ZIP 位于 `dist/release/1.2.1`，安装器及其 SHA-256 文件位于 `dist/release/1.2.1/installer`。构建需要 7-Zip；构建过程使用 Windows 自带的 .NET Framework 编译器生成带 Luna 图标的自解压启动器，捆绑 React 界面运行时。`npm run test:installer-react` 验证最终 EXE 启动与临时目录清理、安装响应、快捷方式、卸载登记、程序启动、升级与卸载；测试使用独立安装路径和卸载登记键。完整的打包回归可运行 `node scripts/validate-windows-release.mjs`。
 
 **M 系列 Mac**：仓库已提供 Apple Silicon 原生构建、成品 smoke 和归档校验流程，CI 在 Pull Request 或手动运行时生成并验证 `luna-版本号-darwin-arm64.dmg` 和 ZIP；本地 Windows 环境不会生成 Mac 成品。DMG 打开后把 `luna.app` 拖入 **Applications／应用程序**，也可解压 ZIP 后移动整个 `luna.app`。运行不需要 Node.js 或 Rosetta。
 
 Mac 包采用 ad-hoc 本地签名，尚未通过 Apple Developer ID 签名和公证。首次打开若被 macOS 拦截，请在 **系统设置 → 隐私与安全性 → 仍要打开** 中确认。详细平台差异、构建与验证见 [Apple Silicon 版说明](docs/macos-arm64.md)。Mac 的独立校验文件为 `SHA256SUMS-macos-arm64.txt`。
 
-Windows 成品和 Release 附有 `SHA256SUMS.txt`；浏览器 ZIP 与安装器各自独立校验。可用 PowerShell 的 `Get-FileHash .\luna-1.2.0-win32-x64.zip -Algorithm SHA256` 校验文件。
+Windows 成品和 Release 附有 `SHA256SUMS.txt`；浏览器 ZIP 与安装器各自独立校验。可用 PowerShell 的 `Get-FileHash .\luna-1.2.1-win32-x64.zip -Algorithm SHA256` 校验文件。
 
 ## 启动
 
@@ -76,7 +88,7 @@ Windows 成品和 Release 附有 `SHA256SUMS.txt`；浏览器 ZIP 与安装器�
 
 ```text
 dist/
-  release/  正式版，目前本地为 1.2.0（浏览器 ZIP 与目录；安装器在 1.2.0/installer）
+  release/  正式版，目前本地为 1.2.1（浏览器 ZIP 与目录；安装器在 1.2.1/installer）
   beta/     本地体验版（如有）
 ```
 

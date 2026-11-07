@@ -3,7 +3,7 @@ if (process.argv.includes('--luna-trash-helper')) {
   return;
 }
 
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol, Notification, nativeImage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, session, nativeTheme, protocol, Notification, nativeImage, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,6 +35,7 @@ const { externalURLs, registerBrowser, defaultStatus } = require('./default-brow
 const { cleanupPrivateDirectories, createPrivateDirectory, removePrivateDirectory, watchPrivateCleanup } = require('./private-sessions');
 const { websiteIcon, fileIcon } = require('./images');
 const { observeRequests } = require('./network-metadata');
+const { loadPage } = require('./page-navigation');
 const { Prompts } = require('./prompts');
 const { BrowsingData } = require('./browsing-data');
 const { Popovers } = require('./popovers');
@@ -74,6 +75,7 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const launchURLs = externalURLs(process.argv);
 const browsers = new Set(), services = new Map(), closedSessions = [];
+let tabDrag = null;
 let quitRequest = null, quitting = false, updateInstalling = false, sharedUpdater;
 let sharedStore, sharedAssets, sharedExtensions, sharedVault, sharedImporter, privateContext, extensionsReady, tabSequence = 0;
 let backupImportStage = null;
@@ -317,7 +319,7 @@ function reloadTab(tab) {
   if (tab.error) navigate(tab, tab.url);
   else { tab.view.webContents.reload(); sendState(); }
 }
-function navigate(tab, input) {
+function navigate(tab, input, { restoring = false } = {}) {
   if (!tab) return;
   if (isPrivate && input === EXTENSIONS) { toast('请在普通窗口中管理扩展程序'); input = HOME; }
   contextMenus?.close(true);
@@ -326,6 +328,8 @@ function navigate(tab, input) {
   const extensionOverride = input === HOME && !isPrivate ? extensionManager?.bridge.getURLOverrides().newtab : null;
   const url = extensionManager?.allowedURL(extensionOverride || input) ? extensionOverride || input : resolveAddress(input, store.data.settings.searchEngine);
   if (tab.ie) { compatibility.navigateTab(tab,url).catch(error=>toast(error.message)); return; }
+  const navigation = { stopped: false, committed: false };
+  tab.navigation = navigation;
   tab.error = null;
   tab.sourceMode = isViewSourceUrl(url);
   tab.url = url;
@@ -339,20 +343,31 @@ function navigate(tab, input) {
     window.webContents.focus();
   } else {
     tab.loading = true;
+    const dependencies = [app.whenReady()];
+    if (restoring) dependencies.push(extensionsReady);
     if (isPrivate) {
       context.protection.reset(tab.view.webContents);
-      Promise.all([tab.protectionReady, context.extensionsReady]).then(() => {
-        if (!closing && tabs.get(tab.id) === tab && tab.url === url && !tab.view.webContents.isDestroyed()) return tab.view.webContents.loadURL(url);
-      }).catch(error => { if (!closing && tabs.get(tab.id) === tab) { tab.loading = false; tab.error = { code: 'PRIVATE_PROTECTION', description: '无痕保护未能启动：' + error.message }; sendState(); } });
-    } else tab.view.webContents.loadURL(url).catch(() => {});
+      dependencies.push(tab.protectionReady, context.extensionsReady);
+    }
+    tab.navigationPromise = loadPage({
+      web: tab.view.webContents, url, ready: Promise.all(dependencies), restoring,
+      current: () => !closing && tabs.get(tab.id) === tab && tab.navigation === navigation && !tab.view.webContents.isDestroyed(),
+      stopped: () => navigation.stopped,
+      committed: () => navigation.committed,
+      failed: error => {
+        tab.loading = false;
+        tab.error = { code: error.code || error.errno || 'LOAD_FAILED', description: error.message || '页面无法加载，请重试', url };
+        tab.title = '页面未能打开'; layout(); sendState();
+      },
+    });
   }
   layout();
   sendState();
 }
-function createTab(input = HOME, active = true, insertAfterId = activeId, popup = false, popupWebContents = null) {
-  if (tabs.size >= 30) { toast('最多打开 30 个标签页，请先关闭部分标签。'); return; }
+function createTab(input = HOME, active = true, insertAfterId = activeId, popupOptions = null, restoring = false) {
   const previousActive = activeId;
-  const view = new WebContentsView({ ...(popupWebContents ? { webContents: popupWebContents } : {}), webPreferences: {
+  const view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: {
+    ...popupOptions?.webPreferences,
     session: webSession, nodeIntegration: false, contextIsolation: true,
     // Permit sandboxed preloads to receive IPC in subframes; page worlds still
     // have no Node integration, and the password handler checks every ancestor.
@@ -377,7 +392,7 @@ function createTab(input = HOME, active = true, insertAfterId = activeId, popup 
   tab.requests = observeRequests(web);
   if (isPrivate) {
     tab.initializingProtection = true;
-    tab.protectionReady = web.loadURL('about:blank').then(() => context.protection.attach(web)).finally(() => { tab.initializingProtection = false; });
+    tab.protectionReady = (popupOptions ? Promise.resolve() : web.loadURL('about:blank')).then(() => context.protection.attach(web)).finally(() => { tab.initializingProtection = false; });
     tab.protectionReady.catch(() => {});
   }
   registeringTab = true;
@@ -390,15 +405,21 @@ function createTab(input = HOME, active = true, insertAfterId = activeId, popup 
   const allowedURL = url => ownerOf(web)?.allowedURL(url);
   web.setWindowOpenHandler(({ url, disposition }) => {
     const owner = ownerOf(web);
-    if (!owner || owner.tabs.size >= 30 || !(url === 'about:blank' || allowedURL(url))) {
+    if (!owner || !(url === 'about:blank' || allowedURL(url))) {
       owner?.notice('无法打开此新标签页，请检查网址或标签数量。'); return { action: 'deny' };
     }
     if (isGoogleOAuthPopup(url)) return {
       action: 'allow',
       overrideBrowserWindowOptions: { width: 520, height: 720, parent: owner.window, modal: false, show: true, title: 'Google 登录', icon: defaultWindowIconPath },
     };
-    owner.createTab(url === 'about:blank' ? HOME : url, disposition !== 'background-tab', tab.id);
-    return { action: 'deny' };
+    return { action: 'allow', outlivesOpener: true, createWindow: options => {
+      const id = owner.createTab(HOME, disposition !== 'background-tab', tab.id, options);
+      const contents = owner.tabs.get(id).view.webContents;
+      // Electron requires the exact supplied guest, not a replacement WebContents.
+      // Links without a guest also need their navigation started by the host.
+      if (!options.webContents && url !== 'about:blank') contents.loadURL(url).catch(() => {});
+      return contents;
+    } };
   });
   web.on('close', event => { if (tab.allowClose) return; event.preventDefault(); ownerOf(web)?.closeTab(tab.id); });
   web.on('will-navigate', (event, url) => { if (!allowedURL(url)) event.preventDefault(); });
@@ -418,8 +439,8 @@ function createTab(input = HOME, active = true, insertAfterId = activeId, popup 
   if (active) activeId = id;
   if (active) extensionManager?.bridge.selectTab(web);
   else if (previousActive && tabs.has(previousActive)) { activeId = previousActive; extensionManager?.bridge.selectTab(tabs.get(previousActive).view.webContents); }
-  if (popup) { tab.url = 'about:blank'; layout(); sendState(); }
-  else navigate(tab, input);
+  if (popupOptions) { tab.url = 'about:blank'; layout(); sendState(); }
+  else navigate(tab, input, { restoring });
   return id;
 }
 async function tabEvent(tab, type, args) {
@@ -446,6 +467,7 @@ async function tabEvent(tab, type, args) {
   else if (type === 'did-navigate' || type === 'did-navigate-in-page') {
     if (type === 'did-navigate-in-page' && !args[2]) return;
     let url = args[1]; if (!controller.allowedURL(url) || isInternalUrl(tab.url)) return;
+    if (tab.navigation) tab.navigation.committed = true;
     if (isViewSourceUrl(web.getURL())) url = web.getURL(); else if (tab.sourceMode && isWebUrl(url)) url = 'view-source:' + url;
     if (hostOrigin(tab.url) !== hostOrigin(url)) { tab.favicon = isWebUrl(url) ? store.data.icons[hostOrigin(url)] || '' : ''; tab.iconRequest++; }
     tab.url = url; tab.security = tab.securityCandidates?.get(url) || null; tab.error = null;
@@ -483,32 +505,36 @@ function orderTabs(id, beforeId) {
   tabs.clear(); for (const tab of list) tabs.set(tab.id, tab);
   for (const tab of list) extensionManager?.refreshTab?.(tab.view.webContents); sendState();
 }
-function detachTab(tab) {
+function detachTab(tab, preserveEmpty = false) {
   popovers.close(true); contextMenus.close(true); passwordManager?.forget(tab.id);
   if (split && [split.leftId, split.rightId].includes(tab.id)) split = null;
   window.contentView.removeChildView(tab.view); tabs.delete(tab.id); delete tab.groupId;
   const recentIndex = recentTabIds.indexOf(tab.id); if (recentIndex >= 0) recentTabIds.splice(recentIndex, 1);
   for (const [id] of groups) if (![...tabs.values()].some(member => member.groupId === id)) groups.delete(id);
   if (activeId === tab.id) activeId = recentTabIds.find(id => tabs.has(id)) || [...tabs.keys()].at(-1);
-  if (!tabs.size) createTab(); else activateTab(activeId);
+  if (!tabs.size) { if (!preserveEmpty) createTab(); } else activateTab(activeId);
 }
 function receiveTab(tab, beforeId) {
   tabs.set(tab.id, tab); window.contentView.addChildView(tab.view);
   extensionManager?.moveTab?.(tab.view.webContents, window); orderTabs(tab.id, beforeId); activateTab(tab.id); window.show(); window.focus();
 }
-async function moveTab(tab, targetId, beforeId) {
+async function moveTab(tab, targetId, beforeId, position) {
   if (!tab || modalOpen || prompts?.active) throw new Error('请先关闭当前弹窗');
-  if (tab.loading || tab.initializingProtection) throw new Error('请等网页加载完成后移动标签');
   let target = targetId ? [...browsers].find(browser => browser.window.id === targetId) : null;
   if (targetId && (!target || target.webSession !== webSession)) throw new Error('标签只能移动到同一浏览会话的窗口');
-  if (target?.window.isDestroyed() || target?.tabs.size >= 30 || target?.prompts.active) throw new Error('目标窗口暂不能接收标签');
+  if (target?.window.isDestroyed() || target?.prompts.active) throw new Error('目标窗口暂不能接收标签');
   if (target === controller) { orderTabs(tab.id, beforeId); return; }
   const legacy = !!tab.ie; if (legacy) await compatibility.closeTab(tab);
   const fresh = !target; if (fresh) target = await createBrowser({ private: isPrivate });
   if (closing || tabs.get(tab.id) !== tab || !target.canReceiveTab()) throw new Error('窗口状态已变化，标签未移动');
   const blank = fresh ? [...target.tabs.values()][0] : null;
-  detachTab(tab); target.receiveTab(tab, beforeId); if (blank && target.tabs.size > 1) target.closeTab(blank.id);
-  if (legacy) await target.compatibility.enter(tab, tab.url); sendState();
+  detachTab(tab, true); target.receiveTab(tab, beforeId); if (blank && target.tabs.size > 1) target.closeTab(blank.id);
+  if (fresh && position) {
+    const area = screen.getDisplayNearestPoint(position).workArea, box = target.window.getBounds();
+    target.window.setPosition(Math.round(Math.max(area.x, Math.min(area.x + area.width - box.width, position.x - Math.min(160, box.width / 2)))), Math.round(Math.max(area.y, Math.min(area.y + area.height - box.height, position.y - 22))));
+  }
+  if (legacy) await target.compatibility.enter(tab, tab.url);
+  if (!tabs.size) await requestClose(); else sendState();
 }
 async function tabAction(value) {
   const tab = tabs.get(Number(value?.id)); if (!tab) throw new Error('标签页已关闭');
@@ -582,8 +608,6 @@ function startSplit(value) {
   }
   const leftChoice = choice(value.leftId, value.leftURL), rightChoice = choice(value.rightId, value.rightURL);
   if (leftChoice === rightChoice && typeof leftChoice === 'number') throw new Error('请选择不同的标签页');
-  const required = Number(typeof leftChoice === 'string') + Number(typeof rightChoice === 'string');
-  if (tabs.size + required > 30) throw new Error('标签页数量已达上限');
   const leftId = typeof leftChoice === 'number' ? leftChoice : createTab(leftChoice, false);
   const rightId = typeof rightChoice === 'number' ? rightChoice : createTab(rightChoice, false);
   split = { leftId, rightId, ratio: 0.5 }; activateTab(leftId);
@@ -999,9 +1023,9 @@ async function requestClose() {
     clearTimeout(updateTimer); updateTimer = null;
     const saved = [...tabs.values()];
     if (!isPrivate) {
-      if (!result || result.restore) closedSessions.push(sessionLayout());
+      if (saved.length && (!result || result.restore)) closedSessions.push(sessionLayout());
       const remaining = [...browsers].filter(browser => browser !== controller && !browser.isPrivate);
-      store.data.sessionWindows = [...closedSessions, ...remaining.map(browser => browser.sessionLayout())].slice(-12);
+      store.data.sessionWindows = [...closedSessions, ...remaining.map(browser => browser.sessionLayout())];
       store.data.session = result && !result.restore ? [] : saved.map(tab => tab.url);
       store.data.sessionActive = Math.max(0, saved.findIndex(tab => tab.id === activeId));
       if (result) store.data.restoreOnce = store.data.sessionWindows.length > 0;
@@ -1068,7 +1092,7 @@ async function requestClose() {
   });
   popovers.onDownloadsOpen = () => downloadNotices.clear();
   controller = { window, tabs, groups, isPrivate, webSession, popovers, createTab, activateTab, closeTab, navigate, openExtensions, queueState, sendState, notice: toast, updateAppearance: updateAppearanceWindows, nativeDownload: handleNativeDownload, sessionLayout, tabEvent, handleShortcut, receiveTab, detachTab, moveTab, close: requestClose,
-    allowedURL: url => isWebUrl(url) || isViewSourceUrl(url) || extensionManager?.allowedURL(url), canReceiveTab: () => !closing && !modalOpen && !prompts?.active && tabs.size < 30,
+    allowedURL: url => isWebUrl(url) || isViewSourceUrl(url) || extensionManager?.allowedURL(url), canReceiveTab: () => !closing && !modalOpen && !prompts?.active,
     downloadNotice: entry => downloadNotices.add(entry), downloadForeground: () => downloadNotices.foreground(),
     get compatibility() { return compatibility; },
     get activeId() { return activeId; }, get registeringTab() { return registeringTab; }, get prompts() { return prompts; } };
@@ -1294,9 +1318,34 @@ async function requestClose() {
       case 'group-action': await groupAction(payload); break;
       case 'activate': activateTab(Number(payload)); break;
       case 'tab-action': await tabAction(payload); break;
+      case 'tab-drag-start': {
+        if (popupSender) throw new Error('只能从标签栏拖动标签');
+        const moving = tabs.get(payload?.id);
+        if (!moving || moving.dragKey !== payload?.dragKey || payload.windowId !== window.id) throw new Error('无法拖动此标签');
+        tabDrag = { source: controller, id: moving.id, key: moving.dragKey }; break;
+      }
+      case 'tab-drag-end': {
+        if (popupSender) throw new Error('只能从标签栏拖动标签');
+        const drag = tabDrag;
+        if (!drag || drag.source !== controller || drag.id !== payload?.id || drag.key !== payload?.dragKey) return;
+        tabDrag = null;
+        const moving = tabs.get(drag.id); if (!moving || drag.handled || payload.handled) return;
+        const point = Number.isFinite(payload.x) && Number.isFinite(payload.y) ? { x: payload.x, y: payload.y } : screen.getCursorScreenPoint();
+        const hovered = [...browsers].reverse().find(browser => {
+          if (browser.window.isDestroyed() || !browser.window.isVisible() || browser.window.isMinimized()) return false;
+          const box = browser.window.getBounds(); return point.x >= box.x && point.x < box.x + box.width && point.y >= box.y && point.y < box.y + box.height;
+        });
+        if (hovered === controller) return;
+        if (hovered) {
+          if (hovered.webSession !== webSession) throw new Error('普通窗口与无痕窗口不能合并标签');
+          await moveTab(moving, hovered.window.id);
+        } else await moveTab(moving, null, null, point);
+        return;
+      }
       case 'tab-drop': {
         const source = [...browsers].find(browser => browser.window.id === payload?.windowId), moving = source?.tabs.get(payload?.id);
         if (!moving || moving.dragKey !== payload?.dragKey || source.webSession !== webSession) throw new Error('无法移动此标签');
+        if (tabDrag?.id === moving.id && tabDrag.key === moving.dragKey) tabDrag.handled = true;
         if (source === controller) orderTabs(moving.id, Number(payload.beforeId));
         else await source.moveTab(moving, window.id, Number(payload.beforeId)); break;
       }
@@ -1483,7 +1532,10 @@ async function requestClose() {
       case 'back': if(tab.ie)await tab.ie.request('back');else if (tab.view.webContents.navigationHistory.canGoBack()) { tab.error = null; tab.view.webContents.navigationHistory.goBack(); layout(); } break;
       case 'forward': if(tab.ie)await tab.ie.request('forward');else if (tab.view.webContents.navigationHistory.canGoForward()) { tab.error = null; tab.view.webContents.navigationHistory.goForward(); layout(); } break;
       case 'reload': reloadTab(tab); break;
-      case 'stop': if(tab.ie)await tab.ie.request('stop');else tab.view.webContents.stop(); break;
+      case 'stop':
+        if(tab.ie) await tab.ie.request('stop');
+        else { if (tab.navigation) tab.navigation.stopped = true; tab.loading = false; tab.view.webContents.stop(); }
+        break;
       case 'bookmark': bookmark(tab); break;
       case 'bookmark-manager': popovers.close(true); window.webContents.send('browser:shortcut', { action: 'bookmark-manager' }); return;
       case 'bookmark-action': {
@@ -1631,11 +1683,11 @@ async function requestClose() {
     if (saved.length) {
       const ids = saved.map(url => {
         if (url.startsWith('chrome-extension://') && !extensionManager.allowedURL(url)) {
-          const id = createTab(HOME, false);
-           extensionsReady?.then(() => { const tab = tabs.get(id); if (tab?.url === HOME && extensionManager.allowedURL(url)) navigate(tab, url); });
+          const id = createTab(HOME, false, null);
+           extensionsReady?.then(() => { const tab = tabs.get(id); if (tab?.url === HOME && extensionManager.allowedURL(url)) navigate(tab, url, { restoring: true }); });
           return id;
         }
-        return createTab(url, false);
+        return createTab(url, false, null, null, true);
        }); restoreLayout(options.layout, ids); activateTab(ids[Math.min(savedActive, ids.length - 1)]);
     } else createTab();
     prompts.setReady();

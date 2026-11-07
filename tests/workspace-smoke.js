@@ -53,8 +53,9 @@ async function menuHover() {
 async function run() {
  await new Promise(r=>server.listen(0,'127.0.0.1',r));base='http://127.0.0.1:'+server.address().port;await launch();
   await navigate(page,base+'/identity');
-  const browserUA=await remote((await active(page)).webContentsId,'navigator.userAgent');assert.match(browserUA,/Chrome\/152\./);assert.doesNotMatch(browserUA,/Electron|luna|Luma/);
-  const clientHints=await remote((await active(page)).webContentsId,'navigator.userAgentData.getHighEntropyValues(["fullVersionList","platformVersion","architecture","bitness"])');assert.ok(clientHints.brands.some(item=>item.brand==='Google Chrome'&&item.version.startsWith('152')),JSON.stringify(clientHints));assert.ok(clientHints.fullVersionList.some(item=>item.brand==='Google Chrome'&&item.version.startsWith('152.')),JSON.stringify(clientHints));checks.push('web pages receive the matching Chromium Chrome user-agent and client hints without Electron product tokens');
+  const engine=await application.evaluate(()=>({electron:process.versions.electron,chrome:process.versions.chrome}));assert.equal(engine.electron,require('../package.json').devDependencies.electron);
+  const browserUA=await remote((await active(page)).webContentsId,'navigator.userAgent');assert.ok(browserUA.includes('Chrome/'+engine.chrome),browserUA);assert.doesNotMatch(browserUA,/Electron|luna|Luma/);
+  const clientHints=await remote((await active(page)).webContentsId,'navigator.userAgentData.getHighEntropyValues(["fullVersionList","platformVersion","architecture","bitness"])');assert.ok(clientHints.brands.some(item=>item.brand==='Google Chrome'&&item.version===engine.chrome.split('.')[0]),JSON.stringify(clientHints));assert.ok(clientHints.fullVersionList.some(item=>item.brand==='Google Chrome'&&item.version===engine.chrome),JSON.stringify(clientHints));checks.push('web pages receive the matching Chromium Chrome user-agent and client hints without Electron product tokens');
   await menuHover();
    await navigate(page,base+'/left');const left=await active(page);await command(page,'new-tab',base+'/right');await wait(async()=>(await active(page)).title==='Right document','right ready');let right=await active(page);
    let order=(await state(page)).tabs.map(tab=>tab.id);assert.equal(order.indexOf(right.id),order.indexOf(left.id)+1,'new tab opens immediately after its source tab');

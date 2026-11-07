@@ -218,11 +218,23 @@ function render(newState) {
 }
 let tabsSignature = '';
 function sizeTabs() {
-  const container = $('#tabs'), regular = [...container.querySelectorAll('.tab:not(.pinned)')];
-  const width = regular.length ? Math.min(...regular.map(tab => tab.getBoundingClientRect().width)) : 218;
+  const container = $('#tabs'), bar = $('.titlebar'), nodes = [...container.querySelectorAll('.tab')], groups = [...container.querySelectorAll('.group-chip')];
+  const siblings = [...bar.children].filter(node => node !== container && getComputedStyle(node).display !== 'none');
+  const style = getComputedStyle(bar), gap = parseFloat(style.columnGap) || 0;
+  const available = bar.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - siblings.reduce((sum, node) => sum + node.getBoundingClientRect().width, 0) - gap * siblings.length;
+  const allocation = window.lunaTabLayout.widths(available, nodes.map(node => ({ pinned: node.classList.contains('pinned') })), groups);
+  container.style.width = allocation.width + 'px';
+  nodes.forEach((node, i) => { node.style.width = allocation.tabs[i] + 'px'; });
+  groups.forEach((node, i) => { node.style.width = allocation.groups[i] + 'px'; });
+  const regular = nodes.filter(node => !node.classList.contains('pinned'));
+  const width = regular.length ? Math.min(...regular.map(tab => parseFloat(tab.style.width))) : 218;
   container.classList.toggle('compact', width < 100); container.classList.toggle('dense', width < 68);
 }
-new ResizeObserver(sizeTabs).observe($('#tabs'));
+new ResizeObserver(sizeTabs).observe($('.titlebar'));
+let draggingTab = null, tabDropHandled = false;
+let dragCancelled = false;
+document.addEventListener('drop', () => { tabDropHandled = true; }, true);
+document.addEventListener('keydown', event => { if (event.key === 'Escape') dragCancelled = true; }, true);
 function renderTabs() {
   const container = $('#tabs');
   const signature = JSON.stringify([state.tabs, state.activeId, state.groups, lastCustomIcons, state.settings.appearance?.icons]);
@@ -251,8 +263,17 @@ function renderTabs() {
     }
     const item = el('div', 'tab' + (tab.id === state.activeId ? ' selected' : '') + (tab.loading ? ' loading' : '') + (tab.pinned ? ' pinned' : ''));
     item.draggable = true;
-    item.ondragstart = event => { window.lunaTabDragging = true; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-luna-tab', JSON.stringify({ id: tab.id, windowId: state.windowId, dragKey: tab.dragKey })); };
-    item.ondragend = () => { window.lunaTabDragging = false; container.querySelectorAll('.drop-before').forEach(node => node.classList.remove('drop-before')); };
+    item.ondragstart = event => {
+      window.lunaTabDragging = true; tabDropHandled = false; dragCancelled = false;
+      draggingTab = { id: tab.id, windowId: state.windowId, dragKey: tab.dragKey };
+      event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-luna-tab', JSON.stringify(draggingTab));
+      command('tab-drag-start', draggingTab);
+    };
+    item.ondragend = event => {
+      window.lunaTabDragging = false; container.querySelectorAll('.drop-before').forEach(node => node.classList.remove('drop-before'));
+      command('tab-drag-end', { ...draggingTab, handled: dragCancelled || tabDropHandled || event.dataTransfer.dropEffect !== 'none', x: event.screenX, y: event.screenY }); draggingTab = null;
+      tabsSignature = ''; renderTabs();
+    };
     item.ondragover = event => { if (!event.dataTransfer.types.includes('application/x-luna-tab')) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; item.classList.add('drop-before'); };
     item.ondragleave = () => item.classList.remove('drop-before');
     item.ondrop = event => { event.preventDefault(); event.stopPropagation(); item.classList.remove('drop-before'); window.lunaTabDragging = false; try { command('tab-drop', { ...JSON.parse(event.dataTransfer.getData('application/x-luna-tab')), beforeId: tab.id }); } catch {} };

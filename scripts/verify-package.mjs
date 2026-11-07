@@ -12,7 +12,7 @@ const channel = require('../package.json').version.includes('-') ? 'beta' : 'rel
 function packageDirectory() {
   if (process.argv[2]) return path.resolve(process.argv[2]);
   const root = path.resolve('dist', channel), direct = path.join(root, 'luna-win32-x64');
-  const versioned = path.join(root, metadata.version, 'luna-win32-x64');
+  const versioned = path.join(root, require('../package.json').version, 'luna-win32-x64');
   if (fs.existsSync(path.join(versioned, 'luna.exe'))) return versioned;
   if (fs.existsSync(path.join(direct, 'luna.exe'))) return direct;
   const candidates = fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, 'luna-win32-x64', 'luna.exe'))).map(entry => entry.name).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
@@ -40,11 +40,17 @@ assert.equal(zip.test(), true, 'ZIP CRC checks pass for every entry');
 const prefix = path.basename(directory) + '/';
 const entries = new Set(zip.getEntries().map(entry => entry.entryName));
 const required = ['luna.exe', 'resources/app.asar', 'resources/luna-ie-host.exe',
-  'LICENSE', 'LICENSES.chromium.html', 'ffmpeg.dll', 'dxcompiler.dll', 'dxil.dll', 'resources/app.ico',
+  'LICENSE', 'LICENSES.chromium.html', 'ffmpeg.dll', 'dxcompiler.dll', 'resources/app.ico',
   'd3dcompiler_47.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json',
   'vulkan-1.dll', 'icudtl.dat', 'resources.pak', 'v8_context_snapshot.bin',
   'snapshot_blob.bin', 'locales/en-US.pak', 'locales/zh-CN.pak', 'locales/zh-TW.pak'];
 if (privateSupported) required.push('resources/luna-private-cleanup.exe');
+// Validate the actual official runtime inventory. Electron may add or remove
+// DLLs between major versions (45 adds electron_wer.dll and removes dxil.dll).
+const officialRuntime = path.join(path.dirname(require.resolve('electron/package.json')), 'dist');
+for (const file of fs.readdirSync(officialRuntime)) {
+  if (/\.(?:dll|pak|bin|dat|json)$/i.test(file) && fs.statSync(path.join(officialRuntime, file)).isFile() && !required.includes(file)) required.push(file);
+}
 if (importSupported) required.push('resources/luna-browser-import.exe');
 for (const file of required) assert.ok(entries.has(prefix + file), `ZIP includes ${file}`);
 assert.deepEqual(zip.getEntry(prefix + 'resources/app.asar').getData(), fs.readFileSync(archive), 'ZIP contains the tested application archive');

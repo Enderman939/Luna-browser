@@ -8,10 +8,11 @@ function splitBounds(area, ratio = 0.5) {
 function sanitizeLayout(value) {
   if (!value || !Array.isArray(value.urls)) return null;
   // Retain index associations while dropping unsafe persisted URLs.
-  const indices = value.urls.map((url, index) => isSessionUrl(url) ? index : -1).filter(index => index >= 0).slice(0, 30);
+  const indices = value.urls.map((url, index) => isSessionUrl(url) ? index : -1).filter(index => index >= 0);
   if (!indices.length) return null;
-  const indexOf = index => indices.indexOf(index);
-  const groups = Array.isArray(value.groups) ? value.groups.slice(0, 30).flatMap(group => {
+  const positions = new Map(indices.map((original, position) => [original, position]));
+  const indexOf = index => positions.get(index) ?? -1;
+  const groups = Array.isArray(value.groups) ? value.groups.flatMap(group => {
     if (!group || typeof group.name !== 'string' || !Array.isArray(group.indices)) return [];
     const members = [...new Set(group.indices.map(indexOf).filter(index => index >= 0))];
     return members.length ? [{ name: group.name.trim().slice(0, 60) || '标签页组', color: GROUP_COLORS.includes(group.color) ? group.color : 'gray', collapsed: group.collapsed === true, indices: members }] : [];

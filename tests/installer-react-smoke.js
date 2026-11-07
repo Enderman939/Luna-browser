@@ -26,6 +26,7 @@ async function wait(predicate, label, timeout = 45000) {
 
 async function run() {
   application = await electron.launch({ executablePath: path.join(runtime, 'luna.exe'), args: ['--no-proxy-server'], env: testEnvironment, timeout: 30000 });
+  assert.equal(await application.evaluate(() => process.versions.electron), require('../package.json').devDependencies.electron, 'installer runs the pinned Electron version');
   page = await application.firstWindow(); await page.waitForSelector('.glow-button');
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.content h2').parentElement).opacity === '1');
   assert.equal(await page.title(), 'Luna Browser Setup');
@@ -66,6 +67,7 @@ async function run() {
 
   const browser = await electron.launch({ executablePath: path.join(target, 'luna.exe'), args: ['--no-proxy-server'], env: { ...testEnvironment, LUNA_USER_DATA: path.join(scratch, 'browser-profile') }, timeout: 30000 });
   try {
+    assert.equal(await browser.evaluate(() => process.versions.electron), require('../package.json').devDependencies.electron, 'installed browser runs the pinned Electron version');
     const browserPage = await browser.firstWindow(); await browserPage.waitForLoadState('domcontentloaded'); assert.equal(browserPage.isClosed(), false);
     await assert.rejects(page.evaluate(installPath => window.installer.install({ installPath, desktop: true, startMenu: true, launch: false }), target), /请先关闭/);
   }
