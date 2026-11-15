@@ -79,7 +79,7 @@ test('bookmarks and history survive restart; corrupt data can recover', t => {
   const store = new Store(directory);
   store.data.settings.theme = 'dark'; store.data.settings.searchEngine = 'bing';
   store.addShortcut('https://example.org/a', 'Shortcut'); store.addShortcut('https://example.org/b', 'New shortcut');
-  store.toggleBookmark('https://example.com', 'Example'); store.visit('https://example.com', 'Example'); store.visit('https://example.com', 'New title');
+  store.toggleBookmark('https://example.com', 'Example'); store.visit('https://example.com', 'Example'); store.visit('https://example.com', 'New title'); store.flush();
   const restored = new Store(directory);
   assert.equal(restored.data.bookmarks.length, 1); assert.equal(restored.data.history.length, 1); assert.equal(restored.data.history[0].title, 'New title');
   assert.equal(restored.data.settings.theme, 'dark'); assert.equal(restored.data.settings.searchEngine, 'bing');

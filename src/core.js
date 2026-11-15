@@ -99,7 +99,11 @@ function sanitizeData(data = {}) {
     cookieTimes: Object.fromEntries(Object.entries(data.cookieTimes || {}).filter(([, time]) => Number.isFinite(time)).slice(-10000)),
     shortcuts: [...new Map(cleanList(data.shortcuts).map(entry => [entry.url, entry])).values()].slice(0, 8),
     settings: sanitizeSettings(data.settings),
-    icons: Object.fromEntries(Object.entries(data.icons && typeof data.icons === 'object' ? data.icons : {}).filter(([origin, icon]) => isWebUrl(origin) && typeof icon === 'string' && /^data:image\/(?:png|jpeg|svg\+xml);base64,/.test(icon) && icon.length <= 128 * 1024).slice(-100)),
+    icons: Object.fromEntries(Object.entries(data.icons && typeof data.icons === 'object' ? data.icons : {}).filter(([origin, icon]) => {
+      if (!isWebUrl(origin) || typeof icon !== 'string') return false;
+      const match = /^data:image\/(png|jpeg|svg\+xml);base64,/.exec(icon); if (!match) return false;
+      return icon.length <= (match[1] === 'svg+xml' ? 16 * 1024 : 64 * 1024);
+    }).slice(-100)),
     installedApps,
   };
 }

@@ -68,6 +68,12 @@ async function run() {
   const geometry = await page.locator('#tabs').evaluate(node => ({ client: node.clientWidth, scroll: node.scrollWidth, widths: [...node.querySelectorAll('.tab')].map(tab => tab.getBoundingClientRect().width) }));
   assert.ok(geometry.scroll <= geometry.client + 1, JSON.stringify(geometry));
   assert.ok(geometry.widths.every(width => width > 0 && width < 34), JSON.stringify(geometry));
+  await page.locator('.tab:not(.selected)').first().hover();
+  assert.equal(await page.locator('.tabs').evaluate(node => node.classList.contains('dense')), true);
+  assert.equal(await page.locator('.tab:not(.selected) .tab-close').first().isVisible(), false, 'compressed inactive close target is hidden to prevent adjacent-tab misclick');
+  await page.locator('.tab.selected .tab-close').hover();
+  const selectedClose = await page.locator('.tab.selected .tab-close').boundingBox();
+  assert.ok(selectedClose.width >= 20 && selectedClose.height >= 20, JSON.stringify(selectedClose));
   await page.screenshot({ path: path.join(root, 'artifacts/tab-strip-many.png') });
   console.log('PASS 45 tabs remain visible and compress to fit a 900px window');
 

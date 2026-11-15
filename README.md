@@ -2,14 +2,29 @@
 
 一个使用 Electron / Chromium 加载真实网页的桌面浏览器，提供 Windows x64 成品，以及 macOS Apple Silicon（M 系列、arm64）适配与构建流程。中文界面采用黑白配色，主页与新标签页使用居中标识、搜索框和圆形网站入口，支持浅色、深色和跟随系统。
 
-当前版本：**1.2.1**，使用 **Electron 45.2.3 / Chromium 156.0.8078.80 / Node.js 24.22.2**。Windows 版支持 Windows 10 及以上的 x64 系统；macOS arm64 构建和成品回归由 Apple Silicon CI 负责验证。
+当前版本：**1.2.3**，使用 **Electron 45.3.2 / Chromium 156.0.8078.100 / Node.js 24.22.2**。Windows 版支持 Windows 10 及以上的 x64 系统；macOS arm64 构建和成品回归由 Apple Silicon CI 负责验证。
 
 双击 `start.cmd` 启动本地正式成品。更新后请先关闭当前窗口再启动，确保使用最新文件；本地另有 Beta 成品时，可用 `start.cmd beta` 选择体验版。
 旧程序仍在运行时，新成品构建到 `dist/release/版本号`。浏览器目录和 ZIP 保存在版本目录；Windows 安装器与其校验文件独立保存在 `installer/` 子目录。构建成功后会更新该频道的 `launch.cmd`，工作目录的 `start.cmd` 会优先启动它指向的最新成品。退出旧版后再启动即可切换。
 
+### 1.2.2 修复
+
+- 修复会话恢复网址已显示但网页内容空白：等待扩展初始化，处理 `loadURL()` 被取消/拒绝的情况；仅安全重试未提交的启动取消，真实加载失败显示错误页。
+- 修复网页弹窗异常、标签拖出/跨 Luna 窗口合并和 30 标签限制；会话恢复不截断标签，并保留当前 WebContents 与页面状态。
+- 压缩到 dense 状态时隐藏非活动标签关闭按钮，避免误触；激活标签后仍可正常关闭。
+
+### 1.2.3 修复
+
+- 移除个性化设置页顶部介绍卡片，打开外观页直接看到可操作的主题预设。
+- 121 项单元测试和 Windows 打包版集成回归通过。
+
+### 1.2.3 修复
+
+- 移除个性化设置页顶部介绍卡片，打开外观页直接看到可操作的主题预设。
+
 ### 1.2.1 修复
 
-- 内核升级并锁定到 Electron 45.2.3（Chromium 156.0.8078.80、Node.js 24.22.2），浏览器与安装器均使用此运行时。
+- 内核升级并锁定到 Electron 45.3.2（Chromium 156.0.8078.100、Node.js 24.22.2），浏览器与安装器均使用此运行时。
 
 - 修复启动恢复网页时导航取消或加载失败被忽略的空白标签。未提交的启动取消仅重试一次，真实失败显示错误页；回归测试验证页面内容、脚本执行及原生网页视图实际绘制。
 
@@ -66,13 +81,13 @@ Google 登录回归只在未输入账号或密码的情况下访问登录页。�
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载最新正式版 `luna-版本号-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 1.2.1 ZIP 位于 `dist/release/1.2.1`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
+在 [GitHub Releases](https://github.com/Enderman939/Luna-browser/releases/latest) 下载最新正式版 `luna-版本号-win32-x64.zip`，解压整个压缩包后双击 `luna-win32-x64/luna.exe`。本地 1.2.3 ZIP 位于 `dist/release/1.2.3`。请保留同目录的全部运行文件。这个 ZIP 是免安装版，运行时不需要 Node.js。
 
-本地 Windows 安装程序为 `dist/release/1.2.1/installer/Luna-Setup-1.2.1-win32-x64.exe`。界面采用 React 和 Amicro 动效，保留 Luna 深色月牙风格，并支持系统的减少动态效果设置。默认安装到当前用户的 `LocalAppData\Programs\Luna Browser`，可创建桌面和开始菜单快捷方式，并在 Windows“已安装的应用”中提供卸载入口。安装程序不需要管理员权限，也不会删除已有的 Luna 浏览资料。
+本地 Windows 安装程序为 `dist/release/1.2.3/installer/Luna-Setup-1.2.3-win32-x64.exe`。界面采用 React 和 Amicro 动效，保留 Luna 深色月牙风格，并支持系统的减少动态效果设置。默认安装到当前用户的 `LocalAppData\Programs\Luna Browser`，可创建桌面和开始菜单快捷方式，并在 Windows“已安装的应用”中提供卸载入口。安装程序不需要管理员权限，也不会删除已有的 Luna 浏览资料。
 
 安装前校验浏览器载荷的 SHA-256；安装期间窗口继续响应，关闭操作会等待安装完成。可选择空文件夹或由此安装器管理的 Luna 目录，更新前需关闭该目录中的 Luna。升级失败会恢复旧程序，卸载按安装清单移除应用文件，保留额外放入目录的个人文件。单文件 EXE 包含界面运行时和浏览器载荷，因此比免安装 ZIP 大。成品校验值见同目录的 `SHA256SUMS.txt`。
 
-源码构建安装器使用 `npm run build:release`：浏览器目录和 ZIP 位于 `dist/release/1.2.1`，安装器及其 SHA-256 文件位于 `dist/release/1.2.1/installer`。构建需要 7-Zip；构建过程使用 Windows 自带的 .NET Framework 编译器生成带 Luna 图标的自解压启动器，捆绑 React 界面运行时。`npm run test:installer-react` 验证最终 EXE 启动与临时目录清理、安装响应、快捷方式、卸载登记、程序启动、升级与卸载；测试使用独立安装路径和卸载登记键。完整的打包回归可运行 `node scripts/validate-windows-release.mjs`。
+源码构建安装器使用 `npm run build:release`：浏览器目录和 ZIP 位于 `dist/release/1.2.3`，安装器及其 SHA-256 文件位于 `dist/release/1.2.3/installer`。构建需要 7-Zip；构建过程使用 Windows 自带的 .NET Framework 编译器生成带 Luna 图标的自解压启动器，捆绑 React 界面运行时。`npm run test:installer-react` 验证最终 EXE 启动与临时目录清理、安装响应、快捷方式、卸载登记、程序启动、升级与卸载；测试使用独立安装路径和卸载登记键。完整的打包回归可运行 `node scripts/validate-windows-release.mjs`。
 
 **M 系列 Mac**：仓库已提供 Apple Silicon 原生构建、成品 smoke 和归档校验流程，CI 在 Pull Request 或手动运行时生成并验证 `luna-版本号-darwin-arm64.dmg` 和 ZIP；本地 Windows 环境不会生成 Mac 成品。DMG 打开后把 `luna.app` 拖入 **Applications／应用程序**，也可解压 ZIP 后移动整个 `luna.app`。运行不需要 Node.js 或 Rosetta。
 
@@ -88,7 +103,7 @@ Windows 成品和 Release 附有 `SHA256SUMS.txt`；浏览器 ZIP 与安装器�
 
 ```text
 dist/
-  release/  正式版，目前本地为 1.2.1（浏览器 ZIP 与目录；安装器在 1.2.1/installer）
+  release/  正式版，目前本地为 1.2.3（浏览器 ZIP 与目录；安装器在 1.2.3/installer）
   beta/     本地体验版（如有）
 ```
 

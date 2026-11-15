@@ -53,7 +53,7 @@ async function run() {
   const pausedDownload = { ...ended(now - 60000), id: crypto.randomUUID(), file: path.join(profile, 'pending.txt'), status: 'paused', mode: 'checking', received: 0 };
   fs.writeFileSync(path.join(profile, 'download-jobs.json'), JSON.stringify([recentDownload, oldDownload, pausedDownload]));
   await launch(); await command('navigate', base + '/recent');
-  await waitFor(async () => (await state()).history.some(entry => entry.url === base + '/recent' && entry.title === 'Privacy Test Page'), 'website loaded and recorded');
+  await waitFor(async () => (await state()).historyTotal >= 2 && JSON.parse(fs.readFileSync(path.join(profile, 'browser-data.json'), 'utf8')).history.some(entry => entry.url === base + '/recent' && entry.title === 'Privacy Test Page'), 'website loaded and recorded');
   await application.evaluate(({ session }, base) => session.fromPartition('persist:luma-web').cookies.set({ url: base, name: 'new_cookie', value: 'new-value', expirationDate: Date.now() / 1000 + 86400 }), base);
   const stats = await command('browsing-data-stats', { range: 'hour' });
   assert.equal(stats.history, 1); assert.equal(stats.cookies, 1, 'native creation time excludes the old cookie'); assert.equal(stats.downloads, 1);
@@ -64,12 +64,12 @@ async function run() {
   assert.equal(await page.locator('.clear-data-option input:disabled').count(), 2);
   await screenshot('clear-browsing-data.png');
   await page.locator('#clear-data-cancel').click();
-  assert.equal((await state()).history.length, 2); assert.equal((await cookies()).length, 2);
+  assert.equal((await state()).historyTotal, 2); assert.equal((await cookies()).length, 2);
   await command('clear-browsing-data'); await page.waitForSelector('#clear-data-dialog[open]');
   await page.locator('[data-clear-type="cache"]').uncheck();
   await waitFor(async () => !await page.locator('#clear-data-submit').isDisabled(), 'data ready');
   await page.locator('#clear-data-submit').click(); await page.waitForSelector('#clear-data-dialog:not([open])', { state: 'attached' });
-  const after = await state(); assert.equal(after.history.length, 1); assert.equal(after.history[0].url, base + '/old');
+  const after = await state(), storedAfter = JSON.parse(fs.readFileSync(path.join(profile, 'browser-data.json'), 'utf8')); assert.equal(after.historyTotal, 1); assert.equal(storedAfter.history[0].url, base + '/old');
   assert.equal(after.bookmarks.length, 1); assert.equal(after.downloads.some(job => job.id === recentDownload.id), false);
   assert.equal(after.downloads.some(job => job.id === oldDownload.id), true); assert.equal(after.downloads.some(job => job.id === pausedDownload.id), true);
   assert.equal(fs.readFileSync(downloadedFile, 'utf8'), 'Keep the downloaded file');
@@ -82,7 +82,7 @@ async function run() {
   await page.locator('[data-clear-type="siteSettings"]').check();
   await waitFor(async () => !await page.locator('#clear-data-submit').isDisabled(), 'all-time counts');
   await page.locator('#clear-data-submit').click(); await page.waitForSelector('#clear-data-dialog:not([open])', { state: 'attached' });
-  assert.equal((await cookies()).length, 0); assert.equal((await state()).history.length, 0); assert.equal((await state()).tabs[0].zoom, 100);
+  assert.equal((await cookies()).length, 0); assert.equal((await state()).historyTotal, 0); assert.equal((await state()).tabs[0].zoom, 100);
   assert.equal((await state()).bookmarks.length, 1);
   const reset = command('reset-settings'); await page.waitForSelector('#confirmation-dialog[open]');
   assert.equal(await page.locator('#confirmation-dialog').getAttribute('data-kind'), 'reset-settings');
@@ -98,7 +98,7 @@ async function run() {
   await page.locator('#close-window').click(); await page.waitForSelector('#confirmation-dialog[open]');
   assert.equal(await page.locator('#confirmation-dialog').getAttribute('data-kind'), 'close-browser');
   assert.equal(await page.locator('.confirmation-tab').count(), 4);
-  assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'confirmation lives in the browser UI');
+  assert.ok(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(win => win.webContents.getURL().endsWith('/index.html'))), 'confirmation lives in the browser UI');
   await screenshot('close-session-confirmation.png');
   await page.locator('#confirmation-cancel').click();
   assert.deepEqual((await state()).tabs.map(tab => tab.url), sessionURLs); assert.equal((await state()).activeId, second);

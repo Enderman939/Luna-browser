@@ -32,8 +32,10 @@ async function selectFile(file) { await application.evaluate(({ dialog }, file) 
 async function run() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); base = 'http://127.0.0.1:' + server.address().port;
   fs.mkdirSync(artifacts, { recursive: true }); fs.copyFileSync(path.join(root, 'src/ui/assets/app.png'), sourceImage);
-   await launch(); await openAppearance();
-   assert.deepEqual((await state()).settings.appearance, DEFAULT_APPEARANCE);
+  await launch(); await openAppearance();
+  assert.deepEqual((await state()).settings.appearance, DEFAULT_APPEARANCE);
+  assert.equal(await page.locator('.appearance-intro').count(), 0, 'appearance introduction card is removed');
+  assert.ok(await page.locator('#appearance-presets').isVisible(), 'appearance controls start directly with useful presets');
    await page.locator('[data-preset="sage"]').click(); await wait(async() => (await state()).settings.appearance.regions.chrome.color === '#eaf0e9', 'sage palette');
    await page.locator('[data-preset="graphite"]').click(); await wait(async() => (await state()).settings.theme === 'dark' && (await state()).settings.appearance.regions.chrome.color === '#202126', 'graphite palette and theme');
    await page.locator('[data-preset="default"]').click(); await wait(async() => !(await state()).settings.appearance.regions.chrome.color, 'default palette'); checks.push('one-click Luna, graphite and nature-inspired appearance presets');

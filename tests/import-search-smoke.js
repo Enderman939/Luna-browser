@@ -35,7 +35,7 @@ async function run() {
   await layer.waitForSelector('#browser-import-result:not([hidden])'); assert.match(await layer.locator('#browser-import-result').textContent(), /650/);
   if (windows) assert.match(await layer.locator('#browser-import-result').textContent(), /1 条密码受应用绑定/);
   else assert.match(await layer.locator('#browser-import-profile-note').textContent(), /macOS.*CSV/);
-  assert.equal((await state()).bookmarks.length, 1); assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).history.length, 650); assert.equal((await state()).downloads.length, 1);
+  assert.equal((await state()).bookmarks.length, 1); assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).historyTotal, 650); assert.equal((await state()).downloads.length, 1);
   const passwords = (await command('password-list')).entries; assert.equal(passwords.length, windows ? 2 : 0);
   if (windows) {
   const detail = command('password-detail', passwords.find(entry => entry.username === 'aes').id); await confirm('password-reveal'); assert.equal((await detail).password, 'Synthetic-AES!');
@@ -43,7 +43,7 @@ async function run() {
   const disk = fs.readFileSync(path.join(profile, 'password-vault.json'), 'utf8'); assert.equal(disk.includes('Synthetic-AES!'), false); assert.equal(disk.includes('Synthetic-legacy!'), false);
   }
   await layer.locator('#browser-import-submit').click(); await confirm('browser-import'); await layer.waitForSelector('#browser-import-result:not([hidden])'); await wait(async () => await layer.locator('#browser-import-submit').isEnabled(), 'duplicate import finished');
-  assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).history.length, 650); assert.equal((await command('password-list')).entries.length, windows ? 2 : 0);
+  assert.equal((await state()).bookmarkFolders.length, 2); assert.equal((await state()).historyTotal, 650); assert.equal((await command('password-list')).entries.length, windows ? 2 : 0);
   await layer.screenshot({ path: path.join(artifacts, 'browser-import-preview.png') }); await layer.locator('#browser-import-close').click(); await wait(() => dialogClosed(layer), 'import closed');
   checks.push('actual detected-profile UI; read-only bookmark hierarchy, 650 history URLs and completed download metadata; ' + (windows ? 'DPAPI and AES-GCM passwords re-encrypted; application-bound password explicitly reported' : 'macOS password CSV path explained') + '; duplicate import preserves data');
   console.log('PASS browser import and Windows password encryption');

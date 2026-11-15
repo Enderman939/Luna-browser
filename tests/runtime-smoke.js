@@ -14,8 +14,8 @@ async function run() {
   const runtime = await application.evaluate(({ app }) => ({ version: app.getVersion(), electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node, platform: process.platform, arch: process.arch, executable: process.execPath, packaged: app.isPackaged }));
   assert.equal(runtime.version, metadata.version);
   assert.equal(runtime.electron, metadata.devDependencies.electron);
-  if (runtime.electron === '45.2.3') {
-    assert.equal(runtime.chromium, '156.0.8078.80'); assert.equal(runtime.node, '24.22.2');
+  if (runtime.electron === '45.3.2') {
+    assert.equal(runtime.chromium, '156.0.8078.100'); assert.equal(runtime.node, '24.22.2');
   }
   if (process.env.LUNA_EXECUTABLE) assert.equal(runtime.packaged, true);
   fs.mkdirSync(path.join(root, 'artifacts'), { recursive: true });

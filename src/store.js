@@ -7,15 +7,23 @@ const { bookmarkURL, MAX_BOOKMARKS, MAX_FOLDERS, sanitizeBookmarks } = require('
 class Store {
   constructor(directory) {
     this.file = path.join(directory, 'browser-data.json');
+    this.pendingSave = null;
     this.data = sanitizeData();
     try { this.data = sanitizeData(JSON.parse(fs.readFileSync(this.file, 'utf8'))); } catch { /* first run or recover corrupt data */ }
   }
   save() {
+    if (this.pendingSave) { clearTimeout(this.pendingSave); this.pendingSave = null; }
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const temporary = this.file + '.tmp';
     fs.writeFileSync(temporary, JSON.stringify(this.data, null, 2), 'utf8');
     fs.renameSync(temporary, this.file);
   }
+  scheduleSave(delay = 400) {
+    if (this.pendingSave) clearTimeout(this.pendingSave);
+    this.pendingSave = setTimeout(() => { this.pendingSave = null; this.save(); }, delay);
+    this.pendingSave.unref?.();
+  }
+  flush() { if (this.pendingSave) { clearTimeout(this.pendingSave); this.pendingSave = null; this.save(); } }
   toggleBookmark(url, title) {
     const index = this.data.bookmarks.findIndex(entry => entry.url === url);
     if (index >= 0) this.data.bookmarks.splice(index, 1);
@@ -27,7 +35,7 @@ class Store {
     this.data.history = this.data.history.filter(entry => entry.url !== url);
     this.data.history.unshift({ url, title, time: Date.now() });
     this.data = sanitizeData(this.data);
-    this.save();
+    this.scheduleSave();
   }
   addShortcut(url, title) {
     this.data.shortcuts = this.data.shortcuts.filter(entry => new URL(entry.url).origin !== new URL(url).origin);

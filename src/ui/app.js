@@ -366,7 +366,7 @@ function renderSettings() {
   });
   if (document.activeElement !== $('#setting-homePage')) $('#setting-homePage').value = state.settings.homePage || '';
   $('#download-location').textContent = state.downloadPath;
-  $('#history-size').textContent = state.history.length + ' 条记录';
+  $('#history-size').textContent = (state.historyTotal ?? state.history.length) + ' 条记录';
   $('#app-version').textContent = '版本 ' + state.version;
   $('#chromium-version').textContent = 'Chromium ' + state.chromium;
   const update = state.update || { phase: 'unsupported' };
@@ -396,7 +396,7 @@ function renderPanel() {
   $('#bookmark-tools').hidden = panelType !== 'bookmarks';
   $('#panel-search-wrap').hidden = panelType === 'downloads';
   $('#panel-search').placeholder = panelType === 'bookmarks' ? '搜索收藏' : '搜索浏览历史';
-  $('#clear-history').hidden = panelType !== 'history' || !state.history.length;
+    $('#clear-history').hidden = panelType !== 'history' || !(state.historyTotal ?? state.history.length);
   const query = $('#panel-search').value.toLowerCase();
   const entries = state[panelType].filter(entry => panelType === 'downloads' || (entry.title + entry.url).toLowerCase().includes(query));
   $('#panel-summary').textContent = entries.length + (panelType === 'downloads' ? ' 个下载' : ' 个记录');

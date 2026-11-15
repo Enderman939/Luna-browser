@@ -288,8 +288,13 @@ class DownloadManager extends EventEmitter {
       if (job.overwrite) await fs.promises.rename(temporary, job.file);
       else {
         job.file = this.uniquePath(job.file, job.id); job.name = path.basename(job.file);
-        await fs.promises.copyFile(temporary, job.file, fs.constants.COPYFILE_EXCL);
-        await fs.promises.unlink(temporary);
+        try {
+          await fs.promises.rename(temporary, job.file);
+        } catch (error) {
+          if (error.code !== 'EXDEV') throw error;
+          await fs.promises.copyFile(temporary, job.file, fs.constants.COPYFILE_EXCL);
+          await fs.promises.unlink(temporary);
+        }
       }
       job.status = 'completed'; job.error = ''; job.resumable = false;
       await fs.promises.rm(this.partDirectory(job), { recursive: true, force: true });
@@ -342,12 +347,14 @@ class DownloadManager extends EventEmitter {
         const job = { ...record, headers: {}, controller: null, running: null, speed: 0, eta: null, lastReceived: 0, lastTime: Date.now(), nextSlot: 0, rateController: new AbortController(), completion: 'none', retryCount: Number.isInteger(record.retryCount) ? Math.max(0, Math.min(10, record.retryCount)) : 0, retryAt: null, retryTimer: null };
         if (!['completed', 'cancelled'].includes(job.status)) {
           job.status = 'paused'; job.received = 0;
+          let invalid = false;
           for (const part of job.threads) {
-            if (!Number.isInteger(part.id) || part.id < 1 || part.id > 16) throw new Error('Invalid download checkpoint');
+            if (!Number.isInteger(part.id) || part.id < 1 || part.id > 16) { invalid = true; break; }
             let size = 0;
             try { size = fs.statSync(this.partPath(job, part)).size; } catch { /* missing part starts over */ }
             part.received = size; job.received += size; part.status = 'paused';
           }
+          if (invalid) continue;
         }
         this.jobs.set(job.id, job);
       }

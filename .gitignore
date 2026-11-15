@@ -20,3 +20,4 @@ src/preload.bundle.js
 src/ui/assets/*.aip
 src/ui/assets/Luna-SetupFiles/
 src/ui/assets/Luna-cache/
+session-*.md

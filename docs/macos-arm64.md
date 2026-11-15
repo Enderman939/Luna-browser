@@ -1,6 +1,6 @@
 # macOS Apple Silicon 版
 
-Electron 45.2.3，面向 M1 及后续 M 系列芯片的原生 arm64 构建。仓库提供原生构建、成品 smoke 和归档校验脚本；Windows 工作区不会生成 Mac 成品，GitHub Actions 的 Apple Silicon runner 负责构建与验证。运行不需要 Node.js 或 Rosetta。本次 Windows 1.2.1 发布不包含未经原生验证的 Mac 成品。
+Electron 45.3.2，面向 M1 及后续 M 系列芯片的原生 arm64 构建。仓库提供原生构建、成品 smoke 和归档校验脚本；Windows 工作区不会生成 Mac 成品，GitHub Actions 的 Apple Silicon runner 负责构建与验证。运行不需要 Node.js 或 Rosetta。本次 Windows 1.2.1 发布不包含未经原生验证的 Mac 成品。
 
 ## 安装与启动
 

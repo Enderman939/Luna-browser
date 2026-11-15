@@ -100,8 +100,11 @@ if (location.origin === 'https://microsoftedge.microsoft.com' && window === wind
         button.textContent = installed ? '已安装到 luna' : '安装到 luna'; button.disabled = installed;
       }
     };
-    addEventListener('DOMContentLoaded', () => refresh().catch(() => {}));
-    setInterval(() => refresh().catch(() => {}), 750);
-    refresh().catch(() => {});
+     addEventListener('DOMContentLoaded', () => refresh().catch(() => {}));
+     addEventListener('popstate', () => refresh().catch(() => {}));
+     addEventListener('hashchange', () => refresh().catch(() => {}));
+     let refreshQueued = false;
+     new MutationObserver(() => { if (refreshQueued) return; refreshQueued = true; requestAnimationFrame(() => { refreshQueued = false; refresh().catch(() => {}); }); }).observe(document.documentElement, { childList: true, subtree: true });
+     refresh().catch(() => {});
   }.toString()})()`).catch(() => {});
 }

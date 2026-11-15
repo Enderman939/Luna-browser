@@ -217,6 +217,12 @@ const MENU_ACTIONS = new Set(['ie-mode','new-tab','new-window','private-window',
 
 function snapshot() {
   if (isPrivate) { store.data.bookmarks = sharedStore.data.bookmarks; store.data.bookmarkFolders = sharedStore.data.bookmarkFolders; }
+  const currentTab = tabs.get(activeId), fullHistory = popovers?.kind === 'history';
+  const fullIcons = popovers?.kind === 'history' || popovers?.kind === 'bookmarks' || currentTab?.url === SETTINGS;
+  const iconOrigins = new Set([...tabs.values(), ...(store.data.shortcuts || []), ...(store.data.bookmarks || []).slice(0, 10)].map(entry => {
+    try { return new URL(entry.url).origin; } catch { return ''; }
+  }).filter(Boolean));
+  const icons = fullIcons ? store.data.icons : Object.fromEntries(Object.entries(store.data.icons).filter(([origin]) => iconOrigins.has(origin)));
   return {
     tabs: [...tabs.values()].filter(tab => tab.view.webContents && !tab.view.webContents.isDestroyed()).map(tab => ({
       id: tab.id, title: tab.title, url: tab.url, loading: tab.loading, pinned: tab.pinned === true, muted: tab.view.webContents.isAudioMuted(), audible: tab.view.webContents.isCurrentlyAudible(), dragKey: tab.dragKey,
@@ -226,7 +232,7 @@ function snapshot() {
       zoom: tab.ie ? tab.ie.zoom || 100 : Math.round(tab.view.webContents.getZoomFactor() * 100), groupId: tab.groupId || null,
       compatibility: compatibility?.status(tab),
     })),
-    activeId, bookmarks: store.data.bookmarks, bookmarkFolders: store.data.bookmarkFolders, history: store.data.history,
+    activeId, bookmarks: store.data.bookmarks, bookmarkFolders: store.data.bookmarkFolders, history: fullHistory && !isPrivate ? store.data.history : [], historyTotal: isPrivate ? 0 : store.data.history.length,
     shortcuts: store.data.shortcuts, recentSites: recentSites(isPrivate ? [] : store.data.history, store.data.shortcuts),
     private: isPrivate, platform: process.platform, windowId: window.id, groups: [...groups.values()], split,
     importWelcomeSeen: store.data.importWelcomeSeen,
@@ -242,7 +248,7 @@ function snapshot() {
     completedDownloads: downloadNotices?.count || 0,
     version: app.getVersion(), chromium: process.versions.chrome,
     update: sharedUpdater?.snapshot(),
-    icons: store.data.icons,
+    icons,
     extensions: extensionManager?.snapshot() || [], extensionInstalling: extensionManager?.installing || false,
     extensionsEnabled: extensionManager?.globalEnabled !== false,
     extensionInstallState: extensionManager?.installState || null,
@@ -343,8 +349,9 @@ function navigate(tab, input, { restoring = false } = {}) {
     window.webContents.focus();
   } else {
     tab.loading = true;
+    // Restored web pages must not wait for extension/store initialization. A
+    // slow extension startup must not leave every saved URL on a blank tab.
     const dependencies = [app.whenReady()];
-    if (restoring) dependencies.push(extensionsReady);
     if (isPrivate) {
       context.protection.reset(tab.view.webContents);
       dependencies.push(tab.protectionReady, context.extensionsReady);
@@ -561,7 +568,7 @@ async function refreshFavicon(tab, url) {
     if (isWebUrl(pageURL)) {
       store.data.icons[new URL(pageURL).origin] = image;
       const keys = Object.keys(store.data.icons); if (keys.length > 100) delete store.data.icons[keys[0]];
-      store.save();
+       store.flush(); store.save();
     }
     sendState();
   } catch { /* an unavailable favicon falls back to the globe */ }
@@ -1028,8 +1035,8 @@ async function requestClose() {
       store.data.sessionWindows = [...closedSessions, ...remaining.map(browser => browser.sessionLayout())];
       store.data.session = result && !result.restore ? [] : saved.map(tab => tab.url);
       store.data.sessionActive = Math.max(0, saved.findIndex(tab => tab.id === activeId));
-      if (result) store.data.restoreOnce = store.data.sessionWindows.length > 0;
-      store.save();
+       if (result) store.data.restoreOnce = store.data.sessionWindows.length > 0;
+       store.flush(); store.save();
     }
     prompts.cancelAll();
     if (clearingPromise) await clearingPromise.catch(() => {});
